@@ -9,7 +9,7 @@ on:
 jobs:
   deploy:
     concurrency:
-      group: deploy-api-${{ github.ref }}
+      group: deploy-api
       cancel-in-progress: false
     runs-on: ubuntu-latest
 
@@ -30,7 +30,7 @@ jobs:
           script: |
             set -e
             cd /opt/trade-signal-engine/api
-            git fetch origin main
+            git fetch origin "${{ github.ref }}"
             git reset --hard "${{ github.sha }}"
             docker image prune -f
             docker compose up -d --build
