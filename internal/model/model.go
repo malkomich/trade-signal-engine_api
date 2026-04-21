@@ -47,3 +47,28 @@ type TradeWindow struct {
 	ExitScore       float64    `json:"exit_score"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
+
+type WindowSnapshot struct {
+	ID             string    `json:"id"`
+	SessionID      string    `json:"session_id"`
+	WindowID       string    `json:"window_id"`
+	Symbol         string    `json:"symbol"`
+	Phase          string    `json:"phase"`
+	EntryScore     float64   `json:"entry_score"`
+	ExitScore      float64   `json:"exit_score"`
+	IndicatorOrder []string  `json:"indicator_order"`
+	CapturedAt     time.Time `json:"captured_at"`
+}
+
+type WindowAnalyticsSummary struct {
+	SessionID         string    `json:"session_id"`
+	SnapshotCount     int       `json:"snapshot_count"`
+	OpenWindows       int       `json:"open_windows"`
+	ClosedWindows     int       `json:"closed_windows"`
+	LastPhase         string    `json:"last_phase"`
+	IndicatorOrder    []string  `json:"indicator_order"`
+	AverageEntryScore float64   `json:"average_entry_score"`
+	AverageExitScore  float64   `json:"average_exit_score"`
+	Symbols           []string  `json:"symbols"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}

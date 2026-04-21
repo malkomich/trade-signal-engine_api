@@ -18,6 +18,10 @@ type Store interface {
 	UpsertSession(context.Context, model.SessionSummary) error
 	SaveWindow(context.Context, model.TradeWindow) error
 	ListWindows(context.Context, string) ([]model.TradeWindow, error)
+	SaveWindowSnapshot(context.Context, model.WindowSnapshot) error
+	ListWindowSnapshots(context.Context, string) ([]model.WindowSnapshot, error)
+	UpsertWindowSummary(context.Context, model.WindowAnalyticsSummary) error
+	GetWindowSummary(context.Context, string) (model.WindowAnalyticsSummary, error)
 }
 
 func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (Store, error) {

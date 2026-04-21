@@ -6,6 +6,8 @@ import (
 
 	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go/v4"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"trade-signal-engine-api/internal/model"
 )
@@ -50,7 +52,7 @@ func (s *FirestoreStore) ListDecisions(ctx context.Context, sessionID string) ([
 func (s *FirestoreStore) GetSession(ctx context.Context, sessionID string) (model.SessionSummary, error) {
 	doc, err := s.client.Collection(model.CollectionMarketSessions).Doc(sessionID).Get(ctx)
 	if err != nil {
-		return model.SessionSummary{}, err
+		return model.SessionSummary{}, mapFirestoreError(err)
 	}
 	var session model.SessionSummary
 	if err := doc.DataTo(&session); err != nil {
@@ -85,4 +87,50 @@ func (s *FirestoreStore) ListWindows(ctx context.Context, sessionID string) ([]m
 		items = append(items, window)
 	}
 	return items, nil
+}
+
+func (s *FirestoreStore) SaveWindowSnapshot(ctx context.Context, snapshot model.WindowSnapshot) error {
+	_, err := s.client.Collection(model.CollectionWindowSnapshots).Doc(snapshot.ID).Set(ctx, snapshot)
+	return err
+}
+
+func (s *FirestoreStore) ListWindowSnapshots(ctx context.Context, sessionID string) ([]model.WindowSnapshot, error) {
+	docs, err := s.client.Collection(model.CollectionWindowSnapshots).Where("session_id", "==", sessionID).OrderBy("captured_at", firestore.Asc).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.WindowSnapshot, 0, len(docs))
+	for _, doc := range docs {
+		var snapshot model.WindowSnapshot
+		if err := doc.DataTo(&snapshot); err != nil {
+			return nil, err
+		}
+		items = append(items, snapshot)
+	}
+	return items, nil
+}
+
+func (s *FirestoreStore) UpsertWindowSummary(ctx context.Context, summary model.WindowAnalyticsSummary) error {
+	summary.UpdatedAt = time.Now().UTC()
+	_, err := s.client.Collection(model.CollectionWindowSummaries).Doc(summary.SessionID).Set(ctx, summary)
+	return err
+}
+
+func (s *FirestoreStore) GetWindowSummary(ctx context.Context, sessionID string) (model.WindowAnalyticsSummary, error) {
+	doc, err := s.client.Collection(model.CollectionWindowSummaries).Doc(sessionID).Get(ctx)
+	if err != nil {
+		return model.WindowAnalyticsSummary{}, mapFirestoreError(err)
+	}
+	var summary model.WindowAnalyticsSummary
+	if err := doc.DataTo(&summary); err != nil {
+		return model.WindowAnalyticsSummary{}, err
+	}
+	return summary, nil
+}
+
+func mapFirestoreError(err error) error {
+	if status.Code(err) == codes.NotFound {
+		return ErrNotFound
+	}
+	return err
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"trade-signal-engine-api/internal/analytics"
 	"trade-signal-engine-api/internal/model"
 	"trade-signal-engine-api/internal/notify"
 	"trade-signal-engine-api/internal/store"
@@ -67,6 +68,10 @@ func (r *Router) decisions(w http.ResponseWriter, req *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to save decision")
 			return
 		}
+		if err := r.persistAnalytics(req.Context(), record, nil); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to save analytics snapshot")
+			return
+		}
 		r.publishNotification(req.Context(), record)
 		writeJSON(w, http.StatusCreated, record)
 	case http.MethodGet:
@@ -105,6 +110,18 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, windows)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "analytics" && req.Method == http.MethodGet {
+		summary, snapshots, err := r.loadAnalytics(req.Context(), sessionID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load analytics")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"summary":   summary,
+			"snapshots": snapshots,
+		})
 		return
 	}
 	switch req.Method {
@@ -189,6 +206,15 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 			writeError(w, http.StatusInternalServerError, "failed to save trade window")
 			return
 		}
+		if err := r.persistAnalytics(req.Context(), record, &window); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to save analytics snapshot")
+			return
+		}
+	} else {
+		if err := r.persistAnalytics(req.Context(), record, nil); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to save analytics snapshot")
+			return
+		}
 	}
 	session, err := r.store.GetSession(req.Context(), sessionID)
 	if err != nil && err != store.ErrNotFound {
@@ -213,6 +239,43 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 		return
 	}
 	writeJSON(w, http.StatusCreated, record)
+}
+
+func (r *Router) persistAnalytics(ctx context.Context, decision model.DecisionRecord, window *model.TradeWindow) error {
+	snapshot := analytics.SnapshotFromDecision(decision, window)
+	if err := r.store.SaveWindowSnapshot(ctx, snapshot); err != nil {
+		return err
+	}
+	return r.updateAnalyticsSummary(ctx, decision.SessionID, snapshot, window)
+}
+
+func (r *Router) loadAnalytics(ctx context.Context, sessionID string) (model.WindowAnalyticsSummary, []model.WindowSnapshot, error) {
+	snapshots, err := r.store.ListWindowSnapshots(ctx, sessionID)
+	if err != nil {
+		return model.WindowAnalyticsSummary{}, nil, err
+	}
+	summary, err := r.store.GetWindowSummary(ctx, sessionID)
+	if err == store.ErrNotFound {
+		windows, windowsErr := r.store.ListWindows(ctx, sessionID)
+		if windowsErr != nil {
+			return model.WindowAnalyticsSummary{}, nil, windowsErr
+		}
+		summary = analytics.BuildWindowSummary(sessionID, windows, snapshots, time.Now().UTC())
+		return summary, snapshots, nil
+	}
+	if err != nil {
+		return model.WindowAnalyticsSummary{}, nil, err
+	}
+	return summary, snapshots, nil
+}
+
+func (r *Router) updateAnalyticsSummary(ctx context.Context, sessionID string, snapshot model.WindowSnapshot, window *model.TradeWindow) error {
+	summary, err := r.store.GetWindowSummary(ctx, sessionID)
+	if err != nil && err != store.ErrNotFound {
+		return err
+	}
+	summary = analytics.UpdateWindowSummary(summary, snapshot, window, time.Now().UTC())
+	return r.store.UpsertWindowSummary(ctx, summary)
 }
 
 func (r *Router) publishNotification(ctx context.Context, decision model.DecisionRecord) {
