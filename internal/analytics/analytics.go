@@ -108,6 +108,112 @@ func UpdateWindowSummary(summary model.WindowAnalyticsSummary, snapshot model.Wi
 	return summary
 }
 
+func BuildDailyAnalyticsExport(sessionID string, snapshots []model.WindowSnapshot, now time.Time) model.DailyAnalyticsExport {
+	export := model.DailyAnalyticsExport{
+		Version:     "daily.analytics.v1",
+		SessionID:   sessionID,
+		ExportPath:  fmt.Sprintf("/v1/sessions/%s/analytics/export", sessionID),
+		GeneratedAt: now,
+	}
+
+	orderedSnapshots := append([]model.WindowSnapshot(nil), snapshots...)
+	sort.SliceStable(orderedSnapshots, func(i, j int) bool {
+		left := orderedSnapshots[i]
+		right := orderedSnapshots[j]
+		if !left.CapturedAt.Equal(right.CapturedAt) {
+			return left.CapturedAt.Before(right.CapturedAt)
+		}
+		if left.Symbol != right.Symbol {
+			return left.Symbol < right.Symbol
+		}
+		return left.ID < right.ID
+	})
+
+	type symbolAggregate struct {
+		snapshotCount int
+		entryTotal    float64
+		exitTotal     float64
+		lastPhase     string
+		lastSeen      time.Time
+	}
+
+	type dayAggregate struct {
+		symbols       map[string]*symbolAggregate
+		snapshotCount int
+		entryTotal    float64
+		exitTotal     float64
+	}
+
+	days := make(map[string]*dayAggregate)
+	for _, snapshot := range orderedSnapshots {
+		if snapshot.CapturedAt.IsZero() {
+			continue
+		}
+		dayKey := snapshot.CapturedAt.UTC().Format("2006-01-02")
+		if _, ok := days[dayKey]; !ok {
+			days[dayKey] = &dayAggregate{symbols: make(map[string]*symbolAggregate)}
+		}
+		daySummary := days[dayKey]
+		daySummary.snapshotCount++
+		daySummary.entryTotal += snapshot.EntryScore
+		daySummary.exitTotal += snapshot.ExitScore
+
+		symbolKey := snapshot.Symbol
+		if symbolKey == "" {
+			continue
+		}
+		symbolSummary, ok := daySummary.symbols[symbolKey]
+		if !ok {
+			symbolSummary = &symbolAggregate{}
+			daySummary.symbols[symbolKey] = symbolSummary
+		}
+		symbolSummary.snapshotCount++
+		symbolSummary.entryTotal += snapshot.EntryScore
+		symbolSummary.exitTotal += snapshot.ExitScore
+		if snapshot.CapturedAt.After(symbolSummary.lastSeen) {
+			symbolSummary.lastPhase = snapshot.Phase
+			symbolSummary.lastSeen = snapshot.CapturedAt
+		}
+	}
+
+	dayKeys := make([]string, 0, len(days))
+	for dayKey := range days {
+		dayKeys = append(dayKeys, dayKey)
+	}
+	sort.Strings(dayKeys)
+	for _, dayKey := range dayKeys {
+		daySummary := days[dayKey]
+		symbolKeys := make([]string, 0, len(daySummary.symbols))
+		for symbolKey := range daySummary.symbols {
+			symbolKeys = append(symbolKeys, symbolKey)
+		}
+		sort.Strings(symbolKeys)
+
+		for _, symbolKey := range symbolKeys {
+			summary := daySummary.symbols[symbolKey]
+			export.SymbolSummaries = append(export.SymbolSummaries, model.DailySymbolAnalyticsSummary{
+				Day:               dayKey,
+				Symbol:            symbolKey,
+				SnapshotCount:     summary.snapshotCount,
+				AverageEntryScore: safeAverage(summary.entryTotal, summary.snapshotCount),
+				AverageExitScore:  safeAverage(summary.exitTotal, summary.snapshotCount),
+				LastPhase:         summary.lastPhase,
+			})
+		}
+
+		export.MarketSummaries = append(export.MarketSummaries, model.DailyMarketAnalyticsSummary{
+			Day:               dayKey,
+			SnapshotCount:     daySummary.snapshotCount,
+			SymbolCount:       len(daySummary.symbols),
+			AverageEntryScore: safeAverage(daySummary.entryTotal, daySummary.snapshotCount),
+			AverageExitScore:  safeAverage(daySummary.exitTotal, daySummary.snapshotCount),
+			Symbols:           symbolKeys,
+		})
+	}
+
+	return export
+}
+
 func weightedAverage(previous float64, previousCount int, next float64) float64 {
 	if previousCount <= 0 {
 		return next
@@ -127,4 +233,11 @@ func addSymbol(symbols []string, symbol string) []string {
 	symbols = append(symbols, symbol)
 	sort.Strings(symbols)
 	return symbols
+}
+
+func safeAverage(total float64, count int) float64 {
+	if count <= 0 {
+		return 0
+	}
+	return total / float64(count)
 }
