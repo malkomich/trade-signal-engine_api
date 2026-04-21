@@ -7,7 +7,11 @@ import (
 	"trade-signal-engine-api/internal/model"
 )
 
-var IndicatorOrder = []string{"SMA", "EMA", "VWAP", "RSI", "ATR", "DM", "MACD", "STOCH"}
+var indicatorOrder = []string{"SMA", "EMA", "VWAP", "RSI", "ATR", "DM", "MACD", "STOCH"}
+
+func IndicatorOrder() []string {
+	return append([]string(nil), indicatorOrder...)
+}
 
 func SnapshotFromDecision(decision model.DecisionRecord, window *model.TradeWindow) model.WindowSnapshot {
 	snapshot := model.WindowSnapshot{
@@ -17,7 +21,7 @@ func SnapshotFromDecision(decision model.DecisionRecord, window *model.TradeWind
 		Phase:          decision.EventType,
 		EntryScore:     decision.EntryScore,
 		ExitScore:      decision.ExitScore,
-		IndicatorOrder: append([]string(nil), IndicatorOrder...),
+		IndicatorOrder: IndicatorOrder(),
 		CapturedAt:     decision.CreatedAt,
 	}
 	if window != nil {
@@ -33,7 +37,7 @@ func BuildWindowSummary(sessionID string, windows []model.TradeWindow, snapshots
 	summary := model.WindowAnalyticsSummary{
 		SessionID:      sessionID,
 		SnapshotCount:  len(snapshots),
-		IndicatorOrder: append([]string(nil), IndicatorOrder...),
+		IndicatorOrder: IndicatorOrder(),
 		UpdatedAt:      now,
 	}
 
@@ -71,4 +75,51 @@ func BuildWindowSummary(sessionID string, windows []model.TradeWindow, snapshots
 	}
 	sort.Strings(summary.Symbols)
 	return summary
+}
+
+func UpdateWindowSummary(summary model.WindowAnalyticsSummary, snapshot model.WindowSnapshot, window *model.TradeWindow, now time.Time) model.WindowAnalyticsSummary {
+	if summary.SessionID == "" {
+		summary.SessionID = snapshot.SessionID
+	}
+	if len(summary.IndicatorOrder) == 0 {
+		summary.IndicatorOrder = IndicatorOrder()
+	}
+	summary.SnapshotCount++
+	summary.LastPhase = snapshot.Phase
+	summary.AverageEntryScore = weightedAverage(summary.AverageEntryScore, summary.SnapshotCount-1, snapshot.EntryScore)
+	summary.AverageExitScore = weightedAverage(summary.AverageExitScore, summary.SnapshotCount-1, snapshot.ExitScore)
+	summary.UpdatedAt = now
+	summary.Symbols = addSymbol(summary.Symbols, snapshot.Symbol)
+	if window == nil {
+		return summary
+	}
+	summary.Symbols = addSymbol(summary.Symbols, window.Symbol)
+	switch window.Status {
+	case "open":
+		summary.OpenWindows++
+	case "closed":
+		summary.ClosedWindows++
+	}
+	return summary
+}
+
+func weightedAverage(previous float64, previousCount int, next float64) float64 {
+	if previousCount <= 0 {
+		return next
+	}
+	return ((previous * float64(previousCount)) + next) / float64(previousCount+1)
+}
+
+func addSymbol(symbols []string, symbol string) []string {
+	if symbol == "" {
+		return symbols
+	}
+	for _, existing := range symbols {
+		if existing == symbol {
+			return symbols
+		}
+	}
+	symbols = append(symbols, symbol)
+	sort.Strings(symbols)
+	return symbols
 }

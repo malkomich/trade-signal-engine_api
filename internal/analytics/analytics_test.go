@@ -38,3 +38,37 @@ func TestBuildWindowSummary(t *testing.T) {
 		t.Fatalf("expected non-zero averages")
 	}
 }
+
+func TestUpdateWindowSummary(t *testing.T) {
+	summary := UpdateWindowSummary(
+		model.WindowAnalyticsSummary{SessionID: "session-1"},
+		model.WindowSnapshot{SessionID: "session-1", Symbol: "AAPL", Phase: "entry", EntryScore: 1.25, ExitScore: 0.5},
+		&model.TradeWindow{Symbol: "AAPL", Status: "open"},
+		time.Unix(100, 0).UTC(),
+	)
+
+	if summary.SessionID != "session-1" {
+		t.Fatalf("unexpected session id: %s", summary.SessionID)
+	}
+	if summary.SnapshotCount != 1 {
+		t.Fatalf("unexpected snapshot count: %d", summary.SnapshotCount)
+	}
+	if summary.OpenWindows != 1 {
+		t.Fatalf("unexpected open windows: %d", summary.OpenWindows)
+	}
+	if summary.AverageEntryScore != 1.25 || summary.AverageExitScore != 0.5 {
+		t.Fatalf("unexpected averages: entry=%v exit=%v", summary.AverageEntryScore, summary.AverageExitScore)
+	}
+	if got := len(summary.Symbols); got != 1 || summary.Symbols[0] != "AAPL" {
+		t.Fatalf("unexpected symbols: %#v", summary.Symbols)
+	}
+}
+
+func TestIndicatorOrderReturnsCopy(t *testing.T) {
+	order := IndicatorOrder()
+	order[0] = "modified"
+
+	if IndicatorOrder()[0] != "SMA" {
+		t.Fatalf("indicator order should be immutable to callers")
+	}
+}

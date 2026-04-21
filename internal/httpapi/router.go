@@ -246,7 +246,7 @@ func (r *Router) persistAnalytics(ctx context.Context, decision model.DecisionRe
 	if err := r.store.SaveWindowSnapshot(ctx, snapshot); err != nil {
 		return err
 	}
-	return r.refreshAnalyticsSummary(ctx, decision.SessionID)
+	return r.updateAnalyticsSummary(ctx, decision.SessionID, snapshot, window)
 }
 
 func (r *Router) loadAnalytics(ctx context.Context, sessionID string) (model.WindowAnalyticsSummary, []model.WindowSnapshot, error) {
@@ -256,7 +256,11 @@ func (r *Router) loadAnalytics(ctx context.Context, sessionID string) (model.Win
 	}
 	summary, err := r.store.GetWindowSummary(ctx, sessionID)
 	if err == store.ErrNotFound {
-		summary = analytics.BuildWindowSummary(sessionID, mustWindows(ctx, r.store, sessionID), snapshots, time.Now().UTC())
+		windows, windowsErr := r.store.ListWindows(ctx, sessionID)
+		if windowsErr != nil {
+			return model.WindowAnalyticsSummary{}, nil, windowsErr
+		}
+		summary = analytics.BuildWindowSummary(sessionID, windows, snapshots, time.Now().UTC())
 		return summary, snapshots, nil
 	}
 	if err != nil {
@@ -265,25 +269,13 @@ func (r *Router) loadAnalytics(ctx context.Context, sessionID string) (model.Win
 	return summary, snapshots, nil
 }
 
-func (r *Router) refreshAnalyticsSummary(ctx context.Context, sessionID string) error {
-	windows, err := r.store.ListWindows(ctx, sessionID)
-	if err != nil {
+func (r *Router) updateAnalyticsSummary(ctx context.Context, sessionID string, snapshot model.WindowSnapshot, window *model.TradeWindow) error {
+	summary, err := r.store.GetWindowSummary(ctx, sessionID)
+	if err != nil && err != store.ErrNotFound {
 		return err
 	}
-	snapshots, err := r.store.ListWindowSnapshots(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-	summary := analytics.BuildWindowSummary(sessionID, windows, snapshots, time.Now().UTC())
+	summary = analytics.UpdateWindowSummary(summary, snapshot, window, time.Now().UTC())
 	return r.store.UpsertWindowSummary(ctx, summary)
-}
-
-func mustWindows(ctx context.Context, st store.Store, sessionID string) []model.TradeWindow {
-	windows, err := st.ListWindows(ctx, sessionID)
-	if err != nil {
-		return nil
-	}
-	return windows
 }
 
 func (r *Router) publishNotification(ctx context.Context, decision model.DecisionRecord) {
