@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+.vscode
+.env
+.env.*
+*.key
+*.pem
+*.log
+build
+dist
+node_modules
