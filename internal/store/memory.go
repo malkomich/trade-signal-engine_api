@@ -83,9 +83,7 @@ func (s *MemoryStore) SaveWindowSnapshot(_ context.Context, snapshot model.Windo
 func (s *MemoryStore) ListWindowSnapshots(_ context.Context, sessionID string) ([]model.WindowSnapshot, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	items := append([]model.WindowSnapshot(nil), s.snapshots[sessionID]...)
-	sort.Slice(items, func(i, j int) bool { return items[i].CapturedAt.Before(items[j].CapturedAt) })
-	return items, nil
+	return append([]model.WindowSnapshot(nil), s.snapshots[sessionID]...), nil
 }
 
 func (s *MemoryStore) UpsertWindowSummary(_ context.Context, summary model.WindowAnalyticsSummary) error {

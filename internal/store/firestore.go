@@ -6,6 +6,8 @@ import (
 
 	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go/v4"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"trade-signal-engine-api/internal/model"
 )
@@ -50,7 +52,7 @@ func (s *FirestoreStore) ListDecisions(ctx context.Context, sessionID string) ([
 func (s *FirestoreStore) GetSession(ctx context.Context, sessionID string) (model.SessionSummary, error) {
 	doc, err := s.client.Collection(model.CollectionMarketSessions).Doc(sessionID).Get(ctx)
 	if err != nil {
-		return model.SessionSummary{}, err
+		return model.SessionSummary{}, mapFirestoreError(err)
 	}
 	var session model.SessionSummary
 	if err := doc.DataTo(&session); err != nil {
@@ -117,11 +119,18 @@ func (s *FirestoreStore) UpsertWindowSummary(ctx context.Context, summary model.
 func (s *FirestoreStore) GetWindowSummary(ctx context.Context, sessionID string) (model.WindowAnalyticsSummary, error) {
 	doc, err := s.client.Collection(model.CollectionWindowSummaries).Doc(sessionID).Get(ctx)
 	if err != nil {
-		return model.WindowAnalyticsSummary{}, err
+		return model.WindowAnalyticsSummary{}, mapFirestoreError(err)
 	}
 	var summary model.WindowAnalyticsSummary
 	if err := doc.DataTo(&summary); err != nil {
 		return model.WindowAnalyticsSummary{}, err
 	}
 	return summary, nil
+}
+
+func mapFirestoreError(err error) error {
+	if status.Code(err) == codes.NotFound {
+		return ErrNotFound
+	}
+	return err
 }

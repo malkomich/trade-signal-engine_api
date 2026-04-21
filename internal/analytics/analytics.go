@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -14,8 +15,12 @@ func IndicatorOrder() []string {
 }
 
 func SnapshotFromDecision(decision model.DecisionRecord, window *model.TradeWindow) model.WindowSnapshot {
+	snapshotID := fmt.Sprintf("%s:%s:%s", decision.SessionID, decision.ID, decision.EventType)
+	if window != nil && window.ID != "" {
+		snapshotID = fmt.Sprintf("%s:%s", snapshotID, window.ID)
+	}
 	snapshot := model.WindowSnapshot{
-		ID:             decision.SessionID + ":" + decision.ID,
+		ID:             snapshotID,
 		SessionID:      decision.SessionID,
 		Symbol:         decision.Symbol,
 		Phase:          decision.EventType,

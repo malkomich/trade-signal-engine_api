@@ -7,6 +7,25 @@ import (
 	"trade-signal-engine-api/internal/model"
 )
 
+func TestSnapshotFromDecision(t *testing.T) {
+	snapshot := SnapshotFromDecision(
+		model.DecisionRecord{
+			ID:        "decision-1",
+			SessionID: "session-1",
+			Symbol:    "AAPL",
+			EventType: model.EventTypeDecisionAccepted,
+		},
+		&model.TradeWindow{ID: "window-1"},
+	)
+
+	if snapshot.ID != "session-1:decision-1:decision.accepted:window-1" {
+		t.Fatalf("unexpected snapshot id: %s", snapshot.ID)
+	}
+	if snapshot.WindowID != "window-1" {
+		t.Fatalf("unexpected window id: %s", snapshot.WindowID)
+	}
+}
+
 func TestBuildWindowSummary(t *testing.T) {
 	windows := []model.TradeWindow{
 		{Symbol: "AAPL", Status: "open", EntryScore: 1.5, ExitScore: 0.4},
