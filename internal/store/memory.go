@@ -13,6 +13,8 @@ type MemoryStore struct {
 	decisions map[string][]model.DecisionRecord
 	sessions  map[string]model.SessionSummary
 	windows   map[string][]model.TradeWindow
+	snapshots map[string][]model.WindowSnapshot
+	summaries map[string]model.WindowAnalyticsSummary
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -20,6 +22,8 @@ func NewMemoryStore() *MemoryStore {
 		decisions: make(map[string][]model.DecisionRecord),
 		sessions:  make(map[string]model.SessionSummary),
 		windows:   make(map[string][]model.TradeWindow),
+		snapshots: make(map[string][]model.WindowSnapshot),
+		summaries: make(map[string]model.WindowAnalyticsSummary),
 	}
 }
 
@@ -67,4 +71,36 @@ func (s *MemoryStore) ListWindows(_ context.Context, sessionID string) ([]model.
 	defer s.mu.RUnlock()
 	items := append([]model.TradeWindow(nil), s.windows[sessionID]...)
 	return items, nil
+}
+
+func (s *MemoryStore) SaveWindowSnapshot(_ context.Context, snapshot model.WindowSnapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.snapshots[snapshot.SessionID] = append(s.snapshots[snapshot.SessionID], snapshot)
+	return nil
+}
+
+func (s *MemoryStore) ListWindowSnapshots(_ context.Context, sessionID string) ([]model.WindowSnapshot, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := append([]model.WindowSnapshot(nil), s.snapshots[sessionID]...)
+	sort.Slice(items, func(i, j int) bool { return items[i].CapturedAt.Before(items[j].CapturedAt) })
+	return items, nil
+}
+
+func (s *MemoryStore) UpsertWindowSummary(_ context.Context, summary model.WindowAnalyticsSummary) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.summaries[summary.SessionID] = summary
+	return nil
+}
+
+func (s *MemoryStore) GetWindowSummary(_ context.Context, sessionID string) (model.WindowAnalyticsSummary, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	summary, ok := s.summaries[sessionID]
+	if !ok {
+		return model.WindowAnalyticsSummary{}, ErrNotFound
+	}
+	return summary, nil
 }

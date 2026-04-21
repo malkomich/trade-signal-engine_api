@@ -5,6 +5,8 @@ const (
 	CollectionMarketSessions     = "market_sessions"
 	CollectionSignalEvents       = "signal_events"
 	CollectionTradeWindows       = "trade_windows"
+	CollectionWindowSnapshots    = "window_snapshots"
+	CollectionWindowSummaries    = "window_summaries"
 	CollectionDailySymbolSummary = "daily_symbol_summaries"
 	CollectionDailyMarketSummary = "daily_market_summaries"
 	CollectionConfigVersions     = "config_versions"
