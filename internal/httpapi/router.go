@@ -125,7 +125,7 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if len(parts) == 3 && parts[1] == "analytics" && parts[2] == "export" && req.Method == http.MethodGet {
-		_, snapshots, err := r.loadAnalytics(req.Context(), sessionID)
+		snapshots, err := r.loadSnapshots(req.Context(), sessionID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to load analytics export")
 			return
@@ -260,7 +260,7 @@ func (r *Router) persistAnalytics(ctx context.Context, decision model.DecisionRe
 }
 
 func (r *Router) loadAnalytics(ctx context.Context, sessionID string) (model.WindowAnalyticsSummary, []model.WindowSnapshot, error) {
-	snapshots, err := r.store.ListWindowSnapshots(ctx, sessionID)
+	snapshots, err := r.loadSnapshots(ctx, sessionID)
 	if err != nil {
 		return model.WindowAnalyticsSummary{}, nil, err
 	}
@@ -277,6 +277,10 @@ func (r *Router) loadAnalytics(ctx context.Context, sessionID string) (model.Win
 		return model.WindowAnalyticsSummary{}, nil, err
 	}
 	return summary, snapshots, nil
+}
+
+func (r *Router) loadSnapshots(ctx context.Context, sessionID string) ([]model.WindowSnapshot, error) {
+	return r.store.ListWindowSnapshots(ctx, sessionID)
 }
 
 func (r *Router) updateAnalyticsSummary(ctx context.Context, sessionID string, snapshot model.WindowSnapshot, window *model.TradeWindow) error {

@@ -144,3 +144,36 @@ func TestBuildDailyAnalyticsExport(t *testing.T) {
 		t.Fatalf("unexpected first market summary: %#v", export.MarketSummaries[0])
 	}
 }
+
+func TestBuildDailyAnalyticsExportSkipsZeroTimestampSnapshots(t *testing.T) {
+	snapshots := []model.WindowSnapshot{
+		{
+			SessionID:  "session-1",
+			Symbol:     "AAPL",
+			Phase:      "entry",
+			EntryScore: 1.0,
+			ExitScore:  0.2,
+			CapturedAt: time.Time{},
+		},
+		{
+			SessionID:  "session-1",
+			Symbol:     "AAPL",
+			Phase:      "closed",
+			EntryScore: 0.5,
+			ExitScore:  0.7,
+			CapturedAt: time.Date(2026, 4, 20, 15, 30, 0, 0, time.UTC),
+		},
+	}
+
+	export := BuildDailyAnalyticsExport("session-1", snapshots, time.Unix(100, 0).UTC())
+
+	if got := len(export.SymbolSummaries); got != 1 {
+		t.Fatalf("unexpected symbol summaries count: %d", got)
+	}
+	if export.SymbolSummaries[0].SnapshotCount != 1 {
+		t.Fatalf("unexpected symbol snapshot count: %#v", export.SymbolSummaries[0])
+	}
+	if export.SymbolSummaries[0].Day != "2026-04-20" {
+		t.Fatalf("unexpected day for zero timestamp handling: %#v", export.SymbolSummaries[0])
+	}
+}

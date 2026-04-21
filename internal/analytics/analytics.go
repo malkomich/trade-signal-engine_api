@@ -145,11 +145,10 @@ func BuildDailyAnalyticsExport(sessionID string, snapshots []model.WindowSnapsho
 
 	days := make(map[string]*dayAggregate)
 	for _, snapshot := range orderedSnapshots {
-		day := snapshot.CapturedAt
-		if day.IsZero() {
-			day = now
+		if snapshot.CapturedAt.IsZero() {
+			continue
 		}
-		dayKey := day.UTC().Format("2006-01-02")
+		dayKey := snapshot.CapturedAt.UTC().Format("2006-01-02")
 		if _, ok := days[dayKey]; !ok {
 			days[dayKey] = &dayAggregate{symbols: make(map[string]*symbolAggregate)}
 		}
