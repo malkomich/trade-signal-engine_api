@@ -14,6 +14,15 @@ HTTP API for session decisions, windows, and operational summaries.
 make run
 ```
 
+## Run in Docker
+
+```bash
+docker compose up -d --build
+```
+
+The compose file uses the project name `trade-signal-engine-server`, which keeps the API
+container grouped with the edge worker in Dozzle on the Raspberry Pi.
+
 ## Test
 
 ```bash
@@ -47,3 +56,11 @@ make build
 - `POST /v1/sessions/{id}/accept`
 - `POST /v1/sessions/{id}/reject`
 - `POST /v1/sessions/{id}/ack`
+
+## Deployment
+
+The Raspberry Pi deployment workflow runs on merges to `main` and expects the repository to be
+checked out under `/opt/trade-signal-engine/api` on the target host.
+
+The public proxy points `https://tradesignalengine.backend.synapsesea.com` to this API container
+through the local port published by Compose.

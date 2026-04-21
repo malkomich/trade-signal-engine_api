@@ -1,0 +1,28 @@
+name: Deploy API
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy on Raspberry Pi
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.RASPBERRY_PI_HOST }}
+          username: ${{ secrets.RASPBERRY_PI_USER }}
+          key: ${{ secrets.RASPBERRY_PI_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/trade-signal-engine/api
+            git fetch origin main
+            git reset --hard origin/main
+            docker compose up -d --build
