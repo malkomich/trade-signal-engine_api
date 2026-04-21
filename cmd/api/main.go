@@ -1,0 +1,43 @@
+package main
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"os"
+	"time"
+
+	"trade-signal-engine-api/internal/config"
+	"trade-signal-engine-api/internal/httpapi"
+	"trade-signal-engine-api/internal/notify"
+	"trade-signal-engine-api/internal/store"
+)
+
+func main() {
+	ctx := context.Background()
+	cfg := config.FromEnv()
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	st, err := store.New(ctx, cfg, logger)
+	if err != nil {
+		logger.Error("store initialization failed", "error", err)
+		os.Exit(1)
+	}
+	var notifier notify.Publisher = notify.NoopPublisher{}
+	if cfg.NotifyBackend == "collapse" {
+		notifier = notify.NewCollapsingPublisher(nil, 2*time.Minute)
+	}
+
+	srv := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           httpapi.NewRouter(st, notifier, logger),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	logger.Info("api server starting", "addr", cfg.HTTPAddr, "mode", cfg.StoreBackend)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Error("server stopped unexpectedly", "error", err)
+		os.Exit(1)
+	}
+}

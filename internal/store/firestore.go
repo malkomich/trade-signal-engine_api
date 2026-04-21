@@ -1,0 +1,88 @@
+package store
+
+import (
+	"context"
+	"time"
+
+	"cloud.google.com/go/firestore"
+	firebase "firebase.google.com/go/v4"
+
+	"trade-signal-engine-api/internal/model"
+)
+
+type FirestoreStore struct {
+	client *firestore.Client
+}
+
+func NewFirestoreStore(ctx context.Context, projectID string) (*FirestoreStore, error) {
+	app, err := firebase.NewApp(ctx, &firebase.Config{ProjectID: projectID})
+	if err != nil {
+		return nil, err
+	}
+	client, err := app.Firestore(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &FirestoreStore{client: client}, nil
+}
+
+func (s *FirestoreStore) SaveDecision(ctx context.Context, record model.DecisionRecord) error {
+	_, err := s.client.Collection(model.CollectionDecisionEvents).Doc(record.ID).Set(ctx, record)
+	return err
+}
+
+func (s *FirestoreStore) ListDecisions(ctx context.Context, sessionID string) ([]model.DecisionRecord, error) {
+	docs, err := s.client.Collection(model.CollectionDecisionEvents).Where("session_id", "==", sessionID).OrderBy("created_at", firestore.Asc).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.DecisionRecord, 0, len(docs))
+	for _, doc := range docs {
+		var record model.DecisionRecord
+		if err := doc.DataTo(&record); err != nil {
+			return nil, err
+		}
+		items = append(items, record)
+	}
+	return items, nil
+}
+
+func (s *FirestoreStore) GetSession(ctx context.Context, sessionID string) (model.SessionSummary, error) {
+	doc, err := s.client.Collection(model.CollectionMarketSessions).Doc(sessionID).Get(ctx)
+	if err != nil {
+		return model.SessionSummary{}, err
+	}
+	var session model.SessionSummary
+	if err := doc.DataTo(&session); err != nil {
+		return model.SessionSummary{}, err
+	}
+	return session, nil
+}
+
+func (s *FirestoreStore) UpsertSession(ctx context.Context, session model.SessionSummary) error {
+	session.UpdatedAt = time.Now().UTC()
+	_, err := s.client.Collection(model.CollectionMarketSessions).Doc(session.ID).Set(ctx, session)
+	return err
+}
+
+func (s *FirestoreStore) SaveWindow(ctx context.Context, window model.TradeWindow) error {
+	window.UpdatedAt = time.Now().UTC()
+	_, err := s.client.Collection(model.CollectionTradeWindows).Doc(window.ID).Set(ctx, window)
+	return err
+}
+
+func (s *FirestoreStore) ListWindows(ctx context.Context, sessionID string) ([]model.TradeWindow, error) {
+	docs, err := s.client.Collection(model.CollectionTradeWindows).Where("session_id", "==", sessionID).OrderBy("opened_at", firestore.Asc).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.TradeWindow, 0, len(docs))
+	for _, doc := range docs {
+		var window model.TradeWindow
+		if err := doc.DataTo(&window); err != nil {
+			return nil, err
+		}
+		items = append(items, window)
+	}
+	return items, nil
+}
