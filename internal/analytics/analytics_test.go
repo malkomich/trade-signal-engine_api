@@ -145,6 +145,36 @@ func TestBuildDailyAnalyticsExport(t *testing.T) {
 	}
 }
 
+func TestBuildDailyAnalyticsExportTracksLatestPhasePerSymbol(t *testing.T) {
+	snapshots := []model.WindowSnapshot{
+		{
+			SessionID:  "session-1",
+			Symbol:     "AAPL",
+			Phase:      "closed",
+			EntryScore: 0.5,
+			ExitScore:  0.7,
+			CapturedAt: time.Date(2026, 4, 20, 16, 0, 0, 0, time.UTC),
+		},
+		{
+			SessionID:  "session-1",
+			Symbol:     "AAPL",
+			Phase:      "entry",
+			EntryScore: 0.8,
+			ExitScore:  0.2,
+			CapturedAt: time.Date(2026, 4, 20, 15, 30, 0, 0, time.UTC),
+		},
+	}
+
+	export := BuildDailyAnalyticsExport("session-1", snapshots, time.Unix(100, 0).UTC())
+
+	if len(export.SymbolSummaries) != 1 {
+		t.Fatalf("unexpected symbol summaries count: %d", len(export.SymbolSummaries))
+	}
+	if export.SymbolSummaries[0].LastPhase != "closed" {
+		t.Fatalf("unexpected last phase: %#v", export.SymbolSummaries[0])
+	}
+}
+
 func TestBuildDailyAnalyticsExportSkipsZeroTimestampSnapshots(t *testing.T) {
 	snapshots := []model.WindowSnapshot{
 		{

@@ -134,6 +134,7 @@ func BuildDailyAnalyticsExport(sessionID string, snapshots []model.WindowSnapsho
 		entryTotal    float64
 		exitTotal     float64
 		lastPhase     string
+		lastSeen      time.Time
 	}
 
 	type dayAggregate struct {
@@ -169,7 +170,10 @@ func BuildDailyAnalyticsExport(sessionID string, snapshots []model.WindowSnapsho
 		symbolSummary.snapshotCount++
 		symbolSummary.entryTotal += snapshot.EntryScore
 		symbolSummary.exitTotal += snapshot.ExitScore
-		symbolSummary.lastPhase = snapshot.Phase
+		if snapshot.CapturedAt.After(symbolSummary.lastSeen) {
+			symbolSummary.lastPhase = snapshot.Phase
+			symbolSummary.lastSeen = snapshot.CapturedAt
+		}
 	}
 
 	dayKeys := make([]string, 0, len(days))
