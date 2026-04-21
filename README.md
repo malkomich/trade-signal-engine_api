@@ -44,6 +44,15 @@ make build
 - `PUT /v1/sessions/{id}`
 - `GET /v1/sessions/{id}/windows`
 - `GET /v1/sessions/{id}/analytics`
+- `GET /v1/sessions/{id}/analytics/export`
 - `POST /v1/sessions/{id}/accept`
 - `POST /v1/sessions/{id}/reject`
 - `POST /v1/sessions/{id}/ack`
+
+## Analytics export
+
+`GET /v1/sessions/{id}/analytics/export` returns a versioned daily export payload with:
+
+- symbol summaries grouped by day
+- market summaries rolled up from the symbol summaries
+- a stable `daily.analytics.v1` export version and export path

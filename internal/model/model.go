@@ -72,3 +72,30 @@ type WindowAnalyticsSummary struct {
 	Symbols           []string  `json:"symbols"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
+
+type DailySymbolAnalyticsSummary struct {
+	Day               string  `json:"day"`
+	Symbol            string  `json:"symbol"`
+	SnapshotCount     int     `json:"snapshot_count"`
+	AverageEntryScore float64 `json:"average_entry_score"`
+	AverageExitScore  float64 `json:"average_exit_score"`
+	LastPhase         string  `json:"last_phase"`
+}
+
+type DailyMarketAnalyticsSummary struct {
+	Day               string   `json:"day"`
+	SnapshotCount     int      `json:"snapshot_count"`
+	SymbolCount       int      `json:"symbol_count"`
+	AverageEntryScore float64  `json:"average_entry_score"`
+	AverageExitScore  float64  `json:"average_exit_score"`
+	Symbols           []string `json:"symbols"`
+}
+
+type DailyAnalyticsExport struct {
+	Version         string                        `json:"version"`
+	SessionID       string                        `json:"session_id"`
+	ExportPath      string                        `json:"export_path"`
+	GeneratedAt     time.Time                     `json:"generated_at"`
+	SymbolSummaries []DailySymbolAnalyticsSummary `json:"symbol_summaries"`
+	MarketSummaries []DailyMarketAnalyticsSummary `json:"market_summaries"`
+}
