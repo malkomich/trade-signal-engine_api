@@ -108,6 +108,96 @@ func UpdateWindowSummary(summary model.WindowAnalyticsSummary, snapshot model.Wi
 	return summary
 }
 
+func BuildDailyAnalyticsExport(sessionID string, snapshots []model.WindowSnapshot, now time.Time) model.DailyAnalyticsExport {
+	export := model.DailyAnalyticsExport{
+		Version:     "daily.analytics.v1",
+		SessionID:   sessionID,
+		ExportPath:  fmt.Sprintf("/v1/sessions/%s/analytics/export", sessionID),
+		GeneratedAt: now,
+	}
+
+	type symbolAggregate struct {
+		snapshotCount int
+		entryTotal    float64
+		exitTotal     float64
+		lastPhase     string
+	}
+
+	type dayAggregate struct {
+		symbols       map[string]*symbolAggregate
+		snapshotCount int
+		entryTotal    float64
+		exitTotal     float64
+	}
+
+	days := make(map[string]*dayAggregate)
+	for _, snapshot := range snapshots {
+		day := snapshot.CapturedAt
+		if day.IsZero() {
+			day = now
+		}
+		dayKey := day.UTC().Format("2006-01-02")
+		if _, ok := days[dayKey]; !ok {
+			days[dayKey] = &dayAggregate{symbols: make(map[string]*symbolAggregate)}
+		}
+		daySummary := days[dayKey]
+		daySummary.snapshotCount++
+		daySummary.entryTotal += snapshot.EntryScore
+		daySummary.exitTotal += snapshot.ExitScore
+
+		symbolKey := snapshot.Symbol
+		if symbolKey == "" {
+			continue
+		}
+		symbolSummary, ok := daySummary.symbols[symbolKey]
+		if !ok {
+			symbolSummary = &symbolAggregate{}
+			daySummary.symbols[symbolKey] = symbolSummary
+		}
+		symbolSummary.snapshotCount++
+		symbolSummary.entryTotal += snapshot.EntryScore
+		symbolSummary.exitTotal += snapshot.ExitScore
+		symbolSummary.lastPhase = snapshot.Phase
+	}
+
+	dayKeys := make([]string, 0, len(days))
+	for dayKey := range days {
+		dayKeys = append(dayKeys, dayKey)
+	}
+	sort.Strings(dayKeys)
+	for _, dayKey := range dayKeys {
+		daySummary := days[dayKey]
+		symbolKeys := make([]string, 0, len(daySummary.symbols))
+		for symbolKey := range daySummary.symbols {
+			symbolKeys = append(symbolKeys, symbolKey)
+		}
+		sort.Strings(symbolKeys)
+
+		for _, symbolKey := range symbolKeys {
+			summary := daySummary.symbols[symbolKey]
+			export.SymbolSummaries = append(export.SymbolSummaries, model.DailySymbolAnalyticsSummary{
+				Day:               dayKey,
+				Symbol:            symbolKey,
+				SnapshotCount:     summary.snapshotCount,
+				AverageEntryScore: summary.entryTotal / float64(summary.snapshotCount),
+				AverageExitScore:  summary.exitTotal / float64(summary.snapshotCount),
+				LastPhase:         summary.lastPhase,
+			})
+		}
+
+		export.MarketSummaries = append(export.MarketSummaries, model.DailyMarketAnalyticsSummary{
+			Day:               dayKey,
+			SnapshotCount:     daySummary.snapshotCount,
+			SymbolCount:       len(daySummary.symbols),
+			AverageEntryScore: daySummary.entryTotal / float64(daySummary.snapshotCount),
+			AverageExitScore:  daySummary.exitTotal / float64(daySummary.snapshotCount),
+			Symbols:           symbolKeys,
+		})
+	}
+
+	return export
+}
+
 func weightedAverage(previous float64, previousCount int, next float64) float64 {
 	if previousCount <= 0 {
 		return next

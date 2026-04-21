@@ -124,6 +124,16 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 		})
 		return
 	}
+	if len(parts) == 3 && parts[1] == "analytics" && parts[2] == "export" && req.Method == http.MethodGet {
+		_, snapshots, err := r.loadAnalytics(req.Context(), sessionID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load analytics export")
+			return
+		}
+		export := analytics.BuildDailyAnalyticsExport(sessionID, snapshots, time.Now().UTC())
+		writeJSON(w, http.StatusOK, export)
+		return
+	}
 	switch req.Method {
 	case http.MethodGet:
 		session, err := r.store.GetSession(req.Context(), sessionID)

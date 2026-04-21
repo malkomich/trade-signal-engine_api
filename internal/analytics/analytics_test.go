@@ -91,3 +91,53 @@ func TestIndicatorOrderReturnsCopy(t *testing.T) {
 		t.Fatalf("indicator order should be immutable to callers")
 	}
 }
+
+func TestBuildDailyAnalyticsExport(t *testing.T) {
+	snapshots := []model.WindowSnapshot{
+		{
+			SessionID:  "session-1",
+			Symbol:     "AAPL",
+			Phase:      "entry",
+			EntryScore: 1.0,
+			ExitScore:  0.2,
+			CapturedAt: time.Date(2026, 4, 20, 15, 30, 0, 0, time.UTC),
+		},
+		{
+			SessionID:  "session-1",
+			Symbol:     "AAPL",
+			Phase:      "closed",
+			EntryScore: 0.5,
+			ExitScore:  0.7,
+			CapturedAt: time.Date(2026, 4, 20, 16, 0, 0, 0, time.UTC),
+		},
+		{
+			SessionID:  "session-1",
+			Symbol:     "MSFT",
+			Phase:      "entry",
+			EntryScore: 0.8,
+			ExitScore:  0.4,
+			CapturedAt: time.Date(2026, 4, 21, 15, 0, 0, 0, time.UTC),
+		},
+	}
+
+	export := BuildDailyAnalyticsExport("session-1", snapshots, time.Unix(100, 0).UTC())
+
+	if export.Version != "daily.analytics.v1" {
+		t.Fatalf("unexpected export version: %s", export.Version)
+	}
+	if export.ExportPath != "/v1/sessions/session-1/analytics/export" {
+		t.Fatalf("unexpected export path: %s", export.ExportPath)
+	}
+	if got := len(export.SymbolSummaries); got != 2 {
+		t.Fatalf("unexpected symbol summaries count: %d", got)
+	}
+	if got := len(export.MarketSummaries); got != 2 {
+		t.Fatalf("unexpected market summaries count: %d", got)
+	}
+	if export.SymbolSummaries[0].Day != "2026-04-20" || export.SymbolSummaries[0].Symbol != "AAPL" {
+		t.Fatalf("unexpected first symbol summary: %#v", export.SymbolSummaries[0])
+	}
+	if export.MarketSummaries[0].SnapshotCount != 2 || export.MarketSummaries[0].SymbolCount != 1 {
+		t.Fatalf("unexpected first market summary: %#v", export.MarketSummaries[0])
+	}
+}
