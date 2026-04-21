@@ -8,21 +8,29 @@ on:
 
 jobs:
   deploy:
+    concurrency:
+      group: deploy-api-${{ github.ref }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
 
       - name: Deploy on Raspberry Pi
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262
         with:
           host: ${{ secrets.RASPBERRY_PI_HOST }}
           username: ${{ secrets.RASPBERRY_PI_USER }}
           key: ${{ secrets.RASPBERRY_PI_SSH_KEY }}
+          fingerprint: ${{ secrets.RASPBERRY_PI_HOST_FINGERPRINT }}
           script: |
             set -e
             cd /opt/trade-signal-engine/api
             git fetch origin main
-            git reset --hard origin/main
+            git reset --hard "${{ github.sha }}"
+            docker image prune -f
             docker compose up -d --build

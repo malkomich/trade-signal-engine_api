@@ -20,6 +20,17 @@ make run
 docker compose up -d --build
 ```
 
+Provide a `.env` file or exported environment variables before running the stack:
+
+```bash
+FIREBASE_PROJECT_ID=your-firebase-project-id
+FIREBASE_CREDENTIALS_FILE=/absolute/path/to/firebase-service-account.json
+API_PORT=18080
+```
+
+The compose file is production-oriented for the Raspberry Pi, so it defaults to `production`
+runtime settings and expects Firestore credentials to be mounted explicitly.
+
 The compose file uses the project name `trade-signal-engine-server`, which keeps the API
 container grouped with the edge worker in Dozzle on the Raspberry Pi.
 
@@ -62,6 +73,13 @@ make build
 
 The Raspberry Pi deployment workflow runs on merges to `main` and expects the repository to be
 checked out under `/opt/trade-signal-engine/api` on the target host.
+
+Configure these GitHub repository secrets before enabling deployment:
+
+- `RASPBERRY_PI_HOST`
+- `RASPBERRY_PI_USER`
+- `RASPBERRY_PI_SSH_KEY`
+- `RASPBERRY_PI_HOST_FINGERPRINT`
 
 The public proxy points `https://tradesignalengine.backend.synapsesea.com` to this API container
 through the local port published by Compose.

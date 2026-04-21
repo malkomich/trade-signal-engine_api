@@ -14,3 +14,6 @@ services:
       STORE_BACKEND: ${STORE_BACKEND:-firestore}
       NOTIFICATION_BACKEND: ${NOTIFICATION_BACKEND:-collapse}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:?FIREBASE_PROJECT_ID is required}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-service-account.json
+    volumes:
+      - ${FIREBASE_CREDENTIALS_FILE:?FIREBASE_CREDENTIALS_FILE is required}:/run/secrets/firebase-service-account.json:ro
