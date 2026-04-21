@@ -116,6 +116,19 @@ func BuildDailyAnalyticsExport(sessionID string, snapshots []model.WindowSnapsho
 		GeneratedAt: now,
 	}
 
+	orderedSnapshots := append([]model.WindowSnapshot(nil), snapshots...)
+	sort.SliceStable(orderedSnapshots, func(i, j int) bool {
+		left := orderedSnapshots[i]
+		right := orderedSnapshots[j]
+		if !left.CapturedAt.Equal(right.CapturedAt) {
+			return left.CapturedAt.Before(right.CapturedAt)
+		}
+		if left.Symbol != right.Symbol {
+			return left.Symbol < right.Symbol
+		}
+		return left.ID < right.ID
+	})
+
 	type symbolAggregate struct {
 		snapshotCount int
 		entryTotal    float64
@@ -131,7 +144,7 @@ func BuildDailyAnalyticsExport(sessionID string, snapshots []model.WindowSnapsho
 	}
 
 	days := make(map[string]*dayAggregate)
-	for _, snapshot := range snapshots {
+	for _, snapshot := range orderedSnapshots {
 		day := snapshot.CapturedAt
 		if day.IsZero() {
 			day = now
@@ -179,8 +192,8 @@ func BuildDailyAnalyticsExport(sessionID string, snapshots []model.WindowSnapsho
 				Day:               dayKey,
 				Symbol:            symbolKey,
 				SnapshotCount:     summary.snapshotCount,
-				AverageEntryScore: summary.entryTotal / float64(summary.snapshotCount),
-				AverageExitScore:  summary.exitTotal / float64(summary.snapshotCount),
+				AverageEntryScore: safeAverage(summary.entryTotal, summary.snapshotCount),
+				AverageExitScore:  safeAverage(summary.exitTotal, summary.snapshotCount),
 				LastPhase:         summary.lastPhase,
 			})
 		}
@@ -189,8 +202,8 @@ func BuildDailyAnalyticsExport(sessionID string, snapshots []model.WindowSnapsho
 			Day:               dayKey,
 			SnapshotCount:     daySummary.snapshotCount,
 			SymbolCount:       len(daySummary.symbols),
-			AverageEntryScore: daySummary.entryTotal / float64(daySummary.snapshotCount),
-			AverageExitScore:  daySummary.exitTotal / float64(daySummary.snapshotCount),
+			AverageEntryScore: safeAverage(daySummary.entryTotal, daySummary.snapshotCount),
+			AverageExitScore:  safeAverage(daySummary.exitTotal, daySummary.snapshotCount),
 			Symbols:           symbolKeys,
 		})
 	}
@@ -217,4 +230,11 @@ func addSymbol(symbols []string, symbol string) []string {
 	symbols = append(symbols, symbol)
 	sort.Strings(symbols)
 	return symbols
+}
+
+func safeAverage(total float64, count int) float64 {
+	if count <= 0 {
+		return 0
+	}
+	return total / float64(count)
 }
