@@ -11,26 +11,31 @@ jobs:
     concurrency:
       group: deploy-api
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, raspberry, trade-signal-engine-api]
 
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.sha }}
           fetch-depth: 0
 
+      - name: Prepare credentials
+        run: |
+          set -e
+          install_dir="$(mktemp -d)"
+          credentials_file="$install_dir/firebase-service-account.json"
+          printf '%s' '${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRADE_SIGNAL_ENGINE }}' > "$credentials_file"
+          echo "FIREBASE_CREDENTIALS_FILE=$credentials_file" >> "$GITHUB_ENV"
+
       - name: Deploy on Raspberry Pi
-        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262
-        with:
-          host: ${{ secrets.RASPBERRY_PI_HOST }}
-          username: ${{ secrets.RASPBERRY_PI_USER }}
-          key: ${{ secrets.RASPBERRY_PI_SSH_KEY }}
-          fingerprint: ${{ secrets.RASPBERRY_PI_HOST_FINGERPRINT }}
-          script: |
-            set -e
-            cd /opt/trade-signal-engine/api
-            git fetch origin "${{ github.ref }}"
-            git reset --hard "${{ github.sha }}"
-            docker image prune -f
-            docker compose up -d --build
+        working-directory: services/api
+        env:
+          FIREBASE_PROJECT_ID: trade-signal-engine
+          ENVIRONMENT: production
+          STORE_BACKEND: firestore
+          NOTIFICATION_BACKEND: collapse
+          API_PORT: 18080
+        run: |
+          set -e
+          docker compose up -d --build --remove-orphans
+          docker compose ps

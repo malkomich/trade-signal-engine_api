@@ -34,6 +34,10 @@ runtime settings and expects Firestore credentials to be mounted explicitly.
 The compose file uses the project name `trade-signal-engine-server`, which keeps the API
 container grouped with the edge worker in Dozzle on the Raspberry Pi.
 
+The container now exposes a landing page on `http://localhost:18080/` and the proxy can route
+`https://tradesignalengine.backend.synapsesea.com/api` to that page while keeping the REST
+routes under `/api/*`.
+
 ## Test
 
 ```bash
@@ -71,18 +75,21 @@ make build
 
 ## Deployment
 
-The Raspberry Pi deployment workflow runs on merges to `main` and expects the repository to be
-checked out under `/opt/trade-signal-engine/api` on the target host.
+The Raspberry Pi deployment workflow runs on merges to `main` and executes on the repository's
+Raspberry Pi self-hosted runner.
 
 Configure these GitHub repository secrets before enabling deployment:
 
-- `RASPBERRY_PI_HOST`
-- `RASPBERRY_PI_USER`
-- `RASPBERRY_PI_SSH_KEY`
-- `RASPBERRY_PI_HOST_FINGERPRINT`
+- `FIREBASE_SERVICE_ACCOUNT_TRADE_SIGNAL_ENGINE`
+- `GCP_CREDENTIALS_JSON`
 
-The public proxy points `https://tradesignalengine.backend.synapsesea.com` to this API container
-through the local port published by Compose.
+These repository variables are also useful for tooling and local automation:
+
+- `GOOGLE_CLOUD_PROJECT=trade-signal-engine`
+- `GCP_PROJECT_ID=trade-signal-engine`
+
+The public proxy points `https://tradesignalengine.backend.synapsesea.com/api` to this API
+container through the local port published by Compose.
 
 ## Analytics export
 

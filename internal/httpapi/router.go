@@ -23,11 +23,31 @@ type Router struct {
 func NewRouter(st store.Store, notifier notify.Publisher, logger *slog.Logger) http.Handler {
 	r := &Router{store: st, notifier: notifier, logger: logger}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/", r.root)
 	mux.HandleFunc("/healthz", r.healthz)
 	mux.HandleFunc("/readyz", r.readyz)
 	mux.HandleFunc("/v1/decisions", r.decisions)
 	mux.HandleFunc("/v1/sessions/", r.sessions)
 	return mux
+}
+
+func (r *Router) root(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"service": "trade-signal-engine-api",
+		"status":  "ok",
+		"routes": []string{
+			"/healthz",
+			"/readyz",
+			"/v1/decisions",
+			"/v1/sessions/{id}",
+			"/v1/sessions/{id}/windows",
+			"/v1/sessions/{id}/analytics",
+			"/v1/sessions/{id}/analytics/export",
+			"/v1/sessions/{id}/accept",
+			"/v1/sessions/{id}/reject",
+			"/v1/sessions/{id}/ack",
+		},
+	})
 }
 
 func (r *Router) healthz(w http.ResponseWriter, _ *http.Request) {
