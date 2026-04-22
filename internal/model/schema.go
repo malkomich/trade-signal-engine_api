@@ -3,6 +3,7 @@ package model
 const (
 	CollectionDecisionEvents     = "decision_events"
 	CollectionMarketSessions     = "market_sessions"
+	CollectionMarketSnapshots    = "market_snapshots"
 	CollectionSignalEvents       = "signal_events"
 	CollectionTradeWindows       = "trade_windows"
 	CollectionWindowSnapshots    = "window_snapshots"

@@ -12,6 +12,7 @@ type MemoryStore struct {
 	mu        sync.RWMutex
 	decisions map[string][]model.DecisionRecord
 	signals   map[string][]model.SignalEvent
+	market    map[string][]model.MarketSnapshot
 	sessions  map[string]model.SessionSummary
 	windows   map[string][]model.TradeWindow
 	snapshots map[string][]model.WindowSnapshot
@@ -22,6 +23,7 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		decisions: make(map[string][]model.DecisionRecord),
 		signals:   make(map[string][]model.SignalEvent),
+		market:    make(map[string][]model.MarketSnapshot),
 		sessions:  make(map[string]model.SessionSummary),
 		windows:   make(map[string][]model.TradeWindow),
 		snapshots: make(map[string][]model.WindowSnapshot),
@@ -41,6 +43,37 @@ func (s *MemoryStore) SaveSignalEvent(_ context.Context, event model.SignalEvent
 	defer s.mu.Unlock()
 	s.signals[event.SessionID] = append(s.signals[event.SessionID], event)
 	return nil
+}
+
+func (s *MemoryStore) SaveMarketSnapshot(_ context.Context, snapshot model.MarketSnapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := s.market[snapshot.SessionID]
+	for index, existing := range items {
+		if existing.ID == snapshot.ID {
+			items[index] = snapshot
+			s.market[snapshot.SessionID] = items
+			return nil
+		}
+	}
+	s.market[snapshot.SessionID] = append(items, snapshot)
+	return nil
+}
+
+func (s *MemoryStore) ListMarketSnapshots(_ context.Context, sessionID string) ([]model.MarketSnapshot, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := append([]model.MarketSnapshot(nil), s.market[sessionID]...)
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].Timestamp.Equal(items[j].Timestamp) {
+			return items[i].Timestamp.Before(items[j].Timestamp)
+		}
+		if items[i].Symbol != items[j].Symbol {
+			return items[i].Symbol < items[j].Symbol
+		}
+		return items[i].ID < items[j].ID
+	})
+	return items, nil
 }
 
 func (s *MemoryStore) ListDecisions(_ context.Context, sessionID string) ([]model.DecisionRecord, error) {
