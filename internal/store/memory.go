@@ -48,7 +48,15 @@ func (s *MemoryStore) SaveSignalEvent(_ context.Context, event model.SignalEvent
 func (s *MemoryStore) SaveMarketSnapshot(_ context.Context, snapshot model.MarketSnapshot) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.market[snapshot.SessionID] = append(s.market[snapshot.SessionID], snapshot)
+	items := s.market[snapshot.SessionID]
+	for index, existing := range items {
+		if existing.ID == snapshot.ID {
+			items[index] = snapshot
+			s.market[snapshot.SessionID] = items
+			return nil
+		}
+	}
+	s.market[snapshot.SessionID] = append(items, snapshot)
 	return nil
 }
 

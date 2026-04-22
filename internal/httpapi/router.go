@@ -15,13 +15,14 @@ import (
 )
 
 type Router struct {
-	store    store.Store
-	notifier notify.Publisher
-	logger   *slog.Logger
+	store                  store.Store
+	notifier               notify.Publisher
+	logger                 *slog.Logger
+	defaultBenchmarkSymbol string
 }
 
-func NewRouter(st store.Store, notifier notify.Publisher, logger *slog.Logger) http.Handler {
-	r := &Router{store: st, notifier: notifier, logger: logger}
+func NewRouter(st store.Store, notifier notify.Publisher, logger *slog.Logger, defaultBenchmarkSymbol string) http.Handler {
+	r := &Router{store: st, notifier: notifier, logger: logger, defaultBenchmarkSymbol: defaultBenchmarkSymbol}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", r.root)
 	mux.HandleFunc("/healthz", r.healthz)
@@ -172,6 +173,7 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 				return
 			}
 			if payload.ID == "" {
+				// Retried snapshots keep the same ID so both Firestore and memory backends upsert the record.
 				payload.ID = payload.SessionID + ":" + payload.Symbol + ":" + payload.Timestamp.UTC().Format(time.RFC3339Nano)
 			}
 			if payload.EventType == "" {
@@ -187,14 +189,15 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 				payload.SignalRegime = "Live market session"
 			}
 			if payload.BenchmarkSymbol == "" {
+				payload.BenchmarkSymbol = r.defaultBenchmarkSymbol
+			}
+			if payload.BenchmarkSymbol == "" {
 				payload.BenchmarkSymbol = "IXIC"
 			}
 			if payload.CreatedAt.IsZero() {
 				payload.CreatedAt = payload.Timestamp
 			}
-			if payload.UpdatedAt.IsZero() {
-				payload.UpdatedAt = payload.Timestamp
-			}
+			payload.UpdatedAt = time.Now().UTC()
 			if err := r.store.SaveMarketSnapshot(req.Context(), payload); err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to save market snapshot")
 				return
@@ -205,10 +208,6 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-	}
-	if len(parts) == 2 && req.Method == http.MethodPost {
-		r.sessionAction(w, req, sessionID, parts[1])
-		return
 	}
 	if len(parts) == 2 && parts[1] == "analytics" && req.Method == http.MethodGet {
 		summary, snapshots, err := r.loadAnalytics(req.Context(), sessionID)
@@ -316,6 +315,8 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 	}
 	session.ID = sessionID
 	session.LastDecisionAt = record.CreatedAt
+	session.UpdatedAt = record.CreatedAt
+	session.Symbols = appendUniqueSymbol(session.Symbols, payload.Symbol)
 	switch action {
 	case "accept":
 		window := model.TradeWindow{
@@ -383,6 +384,18 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 	}
 	r.publishNotification(req.Context(), record)
 	writeJSON(w, http.StatusCreated, record)
+}
+
+func appendUniqueSymbol(symbols []string, symbol string) []string {
+	if symbol == "" {
+		return symbols
+	}
+	for _, existing := range symbols {
+		if strings.EqualFold(existing, symbol) {
+			return symbols
+		}
+	}
+	return append(symbols, symbol)
 }
 
 func (r *Router) closeOpenWindow(ctx context.Context, windows []model.TradeWindow, sessionID string, symbol string, record model.DecisionRecord) (*model.TradeWindow, []model.TradeWindow, error) {
