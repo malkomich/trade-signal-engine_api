@@ -27,7 +27,7 @@ func main() {
 	var notifier notify.Publisher = notify.NoopPublisher{}
 	switch cfg.NotifyBackend {
 	case "collapse":
-		notifier = notify.NewCollapsingPublisher(nil, 2*time.Minute)
+		notifier = notify.NewCollapsingPublisher(notify.NoopPublisher{}, 2*time.Minute)
 	case "fcm":
 		if cfg.ProjectID == "" {
 			logger.Warn("fcm backend requested without FIREBASE_PROJECT_ID; notifications disabled")
