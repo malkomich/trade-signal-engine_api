@@ -23,7 +23,7 @@ type Router struct {
 func NewRouter(st store.Store, notifier notify.Publisher, logger *slog.Logger) http.Handler {
 	r := &Router{store: st, notifier: notifier, logger: logger}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", r.root)
+	mux.HandleFunc("GET /{$}", r.root)
 	mux.HandleFunc("/healthz", r.healthz)
 	mux.HandleFunc("/readyz", r.readyz)
 	mux.HandleFunc("/v1/decisions", r.decisions)

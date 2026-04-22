@@ -19,16 +19,34 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Prepare credentials
+      - name: Verify runner prerequisites
         run: |
           set -e
-          install_dir="$(mktemp -d)"
+          docker --version
+          docker compose version
+
+      - name: Prepare credentials
+        env:
+          FIREBASE_SERVICE_ACCOUNT_TRADE_SIGNAL_ENGINE: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRADE_SIGNAL_ENGINE }}
+          GCP_CREDENTIALS_JSON: ${{ secrets.GCP_CREDENTIALS_JSON }}
+        run: |
+          set -e
+          install_dir="$HOME/.trade-signal-engine-api"
+          mkdir -p "$install_dir"
           credentials_file="$install_dir/firebase-service-account.json"
-          printf '%s' '${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRADE_SIGNAL_ENGINE }}' > "$credentials_file"
+          credentials_json="$FIREBASE_SERVICE_ACCOUNT_TRADE_SIGNAL_ENGINE"
+          if [ -z "$credentials_json" ]; then
+            credentials_json="$GCP_CREDENTIALS_JSON"
+          fi
+          if [ -z "$credentials_json" ]; then
+            echo "no Firebase credentials secret was provided" >&2
+            exit 1
+          fi
+          printf '%s' "$credentials_json" > "$credentials_file"
+          chmod 600 "$credentials_file"
           echo "FIREBASE_CREDENTIALS_FILE=$credentials_file" >> "$GITHUB_ENV"
 
       - name: Deploy on Raspberry Pi
-        working-directory: services/api
         env:
           FIREBASE_PROJECT_ID: trade-signal-engine
           ENVIRONMENT: production
@@ -38,4 +56,25 @@ jobs:
         run: |
           set -e
           docker compose up -d --build --remove-orphans
+          python - <<'PY'
+          import os
+          import sys
+          import time
+          from urllib.request import urlopen
+
+          port = os.getenv("API_PORT", "18080")
+          url = f"http://127.0.0.1:{port}/"
+          deadline = time.time() + 60
+
+          while time.time() < deadline:
+              try:
+                  with urlopen(url, timeout=2) as response:
+                      if response.status == 200:
+                          sys.exit(0)
+              except Exception:
+                  time.sleep(2)
+
+          print("api landing page did not become ready", file=sys.stderr)
+          sys.exit(1)
+          PY
           docker compose ps
