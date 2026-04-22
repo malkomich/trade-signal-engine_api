@@ -198,6 +198,11 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 		writeError(w, http.StatusBadRequest, "symbol is required")
 		return
 	}
+	windows, err := r.store.ListWindows(req.Context(), sessionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load windows")
+		return
+	}
 
 	record := model.DecisionRecord{
 		ID:         time.Now().UTC().Format("20060102T150405.000000000Z"),
@@ -228,6 +233,13 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 		return
 	}
 	r.publishNotification(req.Context(), record)
+	session, err := r.store.GetSession(req.Context(), sessionID)
+	if err != nil && err != store.ErrNotFound {
+		writeError(w, http.StatusInternalServerError, "failed to load session")
+		return
+	}
+	session.ID = sessionID
+	session.LastDecisionAt = record.CreatedAt
 	switch action {
 	case "accept":
 		window := model.TradeWindow{
@@ -244,12 +256,13 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 			writeError(w, http.StatusInternalServerError, "failed to save trade window")
 			return
 		}
+		windows = append(windows, window)
 		if err := r.persistAnalytics(req.Context(), record, &window); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to save analytics snapshot")
 			return
 		}
 	case "exit":
-		window, err := r.closeOpenWindow(req.Context(), sessionID, payload.Symbol, record)
+		window, updatedWindows, err := r.closeOpenWindow(req.Context(), windows, sessionID, payload.Symbol, record)
 		if err != nil {
 			if err == store.ErrNotFound {
 				writeError(w, http.StatusNotFound, "open trade window not found")
@@ -258,6 +271,7 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 			writeError(w, http.StatusInternalServerError, "failed to close trade window")
 			return
 		}
+		windows = updatedWindows
 		if err := r.persistAnalytics(req.Context(), record, window); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to save analytics snapshot")
 			return
@@ -272,26 +286,10 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 		writeError(w, http.StatusInternalServerError, "failed to save signal event")
 		return
 	}
-	session, err := r.store.GetSession(req.Context(), sessionID)
-	if err != nil && err != store.ErrNotFound {
-		writeError(w, http.StatusInternalServerError, "failed to load session")
-		return
-	}
-	session.ID = sessionID
-	session.LastDecisionAt = record.CreatedAt
-	windows, err := r.store.ListWindows(req.Context(), sessionID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load windows")
-		return
-	}
 	session.OpenWindows = countOpenWindows(windows)
 	switch action {
 	case "accept":
-		if session.OpenWindows > 0 {
-			session.Status = "open"
-		} else {
-			session.Status = "closed"
-		}
+		session.Status = "open"
 	case "exit":
 		if session.OpenWindows > 0 {
 			session.Status = "open"
@@ -310,27 +308,23 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 	writeJSON(w, http.StatusCreated, record)
 }
 
-func (r *Router) closeOpenWindow(ctx context.Context, sessionID string, symbol string, record model.DecisionRecord) (*model.TradeWindow, error) {
-	windows, err := r.store.ListWindows(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	for _, window := range windows {
-		if window.Symbol != symbol || window.Status != "open" {
+func (r *Router) closeOpenWindow(ctx context.Context, windows []model.TradeWindow, sessionID string, symbol string, record model.DecisionRecord) (*model.TradeWindow, []model.TradeWindow, error) {
+	for index := range windows {
+		if windows[index].Symbol != symbol || windows[index].Status != "open" {
 			continue
 		}
 		closedAt := record.CreatedAt
-		window.Status = "closed"
-		window.ExitDecisionID = record.ID
-		window.ClosedAt = &closedAt
-		window.ExitScore = record.ExitScore
-		window.UpdatedAt = record.CreatedAt
-		if err := r.store.SaveWindow(ctx, window); err != nil {
-			return nil, err
+		windows[index].Status = "closed"
+		windows[index].ExitDecisionID = record.ID
+		windows[index].ClosedAt = &closedAt
+		windows[index].ExitScore = record.ExitScore
+		windows[index].UpdatedAt = record.CreatedAt
+		if err := r.store.SaveWindow(ctx, windows[index]); err != nil {
+			return nil, nil, err
 		}
-		return &window, nil
+		return &windows[index], windows, nil
 	}
-	return nil, store.ErrNotFound
+	return nil, windows, store.ErrNotFound
 }
 
 func countOpenWindows(windows []model.TradeWindow) int {

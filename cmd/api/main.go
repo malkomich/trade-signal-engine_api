@@ -29,6 +29,10 @@ func main() {
 	case "collapse":
 		notifier = notify.NewCollapsingPublisher(nil, 2*time.Minute)
 	case "fcm":
+		if cfg.ProjectID == "" {
+			logger.Warn("fcm backend requested without FIREBASE_PROJECT_ID; notifications disabled")
+			break
+		}
 		fcmPublisher, err := notify.NewFCMPublisher(ctx, cfg.ProjectID, cfg.NotifyTopic)
 		if err != nil {
 			logger.Error("fcm publisher initialization failed", "error", err)
