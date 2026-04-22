@@ -97,7 +97,6 @@ func (r *Router) decisions(w http.ResponseWriter, req *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to save signal event")
 			return
 		}
-		r.publishNotification(req.Context(), record)
 		writeJSON(w, http.StatusCreated, record)
 	case http.MethodGet:
 		sessionID := req.URL.Query().Get("session_id")
