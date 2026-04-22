@@ -92,7 +92,6 @@ These repository variables are also useful for tooling and local automation:
 
 The API also writes live signal rows to Firestore in `signal_events`, which is what the
 Firebase-hosted admin dashboard reads for real-time triage.
-
 The public proxy points `https://tradesignalengine.backend.synapsesea.com/api` to this API
 container through the local port published by Compose.
 
