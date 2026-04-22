@@ -16,6 +16,7 @@ const (
 	EventTypeDecisionAccepted     = "decision.accepted"
 	EventTypeDecisionRejected     = "decision.rejected"
 	EventTypeDecisionAcknowledged = "decision.acknowledged"
+	EventTypeDecisionExited       = "decision.exited"
 	EventTypeSignalEmitted        = "signal.emitted"
 	EventTypeSessionStarted       = "session.started"
 	EventTypeSessionClosed        = "session.closed"

@@ -44,6 +44,7 @@ func (r *Router) root(w http.ResponseWriter, _ *http.Request) {
 			"/v1/sessions/{id}/analytics",
 			"/v1/sessions/{id}/analytics/export",
 			"/v1/sessions/{id}/accept",
+			"/v1/sessions/{id}/exit",
 			"/v1/sessions/{id}/reject",
 			"/v1/sessions/{id}/ack",
 		},
@@ -92,7 +93,10 @@ func (r *Router) decisions(w http.ResponseWriter, req *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to save analytics snapshot")
 			return
 		}
-		r.publishNotification(req.Context(), record)
+		if err := r.persistSignalEvent(req.Context(), record); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to save signal event")
+			return
+		}
 		writeJSON(w, http.StatusCreated, record)
 	case http.MethodGet:
 		sessionID := req.URL.Query().Get("session_id")
@@ -193,6 +197,11 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 		writeError(w, http.StatusBadRequest, "symbol is required")
 		return
 	}
+	windows, err := r.store.ListWindows(req.Context(), sessionID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load windows")
+		return
+	}
 
 	record := model.DecisionRecord{
 		ID:         time.Now().UTC().Format("20060102T150405.000000000Z"),
@@ -207,6 +216,8 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 	switch action {
 	case "accept":
 		record.EventType = model.EventTypeDecisionAccepted
+	case "exit":
+		record.EventType = model.EventTypeDecisionExited
 	case "reject":
 		record.EventType = model.EventTypeDecisionRejected
 	case "ack":
@@ -215,13 +226,25 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 		writeError(w, http.StatusBadRequest, "unsupported session action")
 		return
 	}
+	if action == "exit" && !hasOpenWindow(windows, payload.Symbol) {
+		writeError(w, http.StatusNotFound, "open trade window not found")
+		return
+	}
 
 	if err := r.store.SaveDecision(req.Context(), record); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save decision")
 		return
 	}
 	r.publishNotification(req.Context(), record)
-	if action == "accept" {
+	session, err := r.store.GetSession(req.Context(), sessionID)
+	if err != nil && err != store.ErrNotFound {
+		writeError(w, http.StatusInternalServerError, "failed to load session")
+		return
+	}
+	session.ID = sessionID
+	session.LastDecisionAt = record.CreatedAt
+	switch action {
+	case "accept":
 		window := model.TradeWindow{
 			ID:              sessionID + ":" + payload.Symbol + ":" + record.ID,
 			SessionID:       sessionID,
@@ -236,29 +259,46 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 			writeError(w, http.StatusInternalServerError, "failed to save trade window")
 			return
 		}
+		windows = append(windows, window)
 		if err := r.persistAnalytics(req.Context(), record, &window); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to save analytics snapshot")
 			return
 		}
-	} else {
+	case "exit":
+		window, updatedWindows, err := r.closeOpenWindow(req.Context(), windows, sessionID, payload.Symbol, record)
+		if err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "open trade window not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to close trade window")
+			return
+		}
+		windows = updatedWindows
+		if err := r.persistAnalytics(req.Context(), record, window); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to save analytics snapshot")
+			return
+		}
+	default:
 		if err := r.persistAnalytics(req.Context(), record, nil); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to save analytics snapshot")
 			return
 		}
 	}
-	session, err := r.store.GetSession(req.Context(), sessionID)
-	if err != nil && err != store.ErrNotFound {
-		writeError(w, http.StatusInternalServerError, "failed to load session")
+	if err := r.persistSignalEvent(req.Context(), record); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save signal event")
 		return
 	}
-	session.ID = sessionID
-	session.LastDecisionAt = record.CreatedAt
+	session.OpenWindows = countOpenWindows(windows)
 	switch action {
 	case "accept":
-		if session.Status != "open" {
-			session.OpenWindows++
-		}
 		session.Status = "open"
+	case "exit":
+		if session.OpenWindows > 0 {
+			session.Status = "open"
+		} else {
+			session.Status = "closed"
+		}
 	case "reject":
 		session.Status = "rejected"
 	case "ack":
@@ -268,7 +308,48 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 		writeError(w, http.StatusInternalServerError, "failed to update session")
 		return
 	}
+	r.publishNotification(req.Context(), record)
 	writeJSON(w, http.StatusCreated, record)
+}
+
+func (r *Router) closeOpenWindow(ctx context.Context, windows []model.TradeWindow, sessionID string, symbol string, record model.DecisionRecord) (*model.TradeWindow, []model.TradeWindow, error) {
+	for index := range windows {
+		if windows[index].Symbol != symbol || windows[index].Status != "open" {
+			continue
+		}
+		windowToClose := windows[index]
+		closedAt := record.CreatedAt
+		windowToClose.Status = "closed"
+		windowToClose.ExitDecisionID = record.ID
+		windowToClose.ClosedAt = &closedAt
+		windowToClose.ExitScore = record.ExitScore
+		windowToClose.UpdatedAt = record.CreatedAt
+		if err := r.store.SaveWindow(ctx, windowToClose); err != nil {
+			return nil, nil, err
+		}
+		windows[index] = windowToClose
+		return &windows[index], windows, nil
+	}
+	return nil, windows, store.ErrNotFound
+}
+
+func hasOpenWindow(windows []model.TradeWindow, symbol string) bool {
+	for _, window := range windows {
+		if window.Symbol == symbol && window.Status == "open" {
+			return true
+		}
+	}
+	return false
+}
+
+func countOpenWindows(windows []model.TradeWindow) int {
+	open := 0
+	for _, window := range windows {
+		if window.Status == "open" {
+			open++
+		}
+	}
+	return open
 }
 
 func (r *Router) persistAnalytics(ctx context.Context, decision model.DecisionRecord, window *model.TradeWindow) error {
@@ -324,6 +405,75 @@ func (r *Router) publishNotification(ctx context.Context, decision model.Decisio
 		Body:      decision.Reason,
 		CreatedAt: decision.CreatedAt,
 	})
+}
+
+func (r *Router) persistSignalEvent(ctx context.Context, decision model.DecisionRecord) error {
+	event := model.SignalEvent{
+		ID:         decision.ID,
+		SessionID:  decision.SessionID,
+		Symbol:     decision.Symbol,
+		State:      signalStateForDecision(decision),
+		EntryScore: decision.EntryScore,
+		ExitScore:  decision.ExitScore,
+		Regime:     signalRegimeForDecision(decision),
+		Reasons:    signalReasonsForDecision(decision),
+		Timestamp:  decision.CreatedAt,
+		UpdatedAt:  decision.CreatedAt,
+	}
+	return r.store.SaveSignalEvent(ctx, event)
+}
+
+func signalStateForDecision(decision model.DecisionRecord) string {
+	switch decision.EventType {
+	case model.EventTypeDecisionAccepted:
+		return "ACCEPTED_OPEN"
+	case model.EventTypeDecisionExited:
+		return "EXIT_SIGNALLED"
+	case model.EventTypeDecisionRejected:
+		return "REJECTED"
+	case model.EventTypeDecisionAcknowledged:
+		return "CLOSED"
+	case model.EventTypeDecisionCreated:
+		switch {
+		case strings.EqualFold(decision.Action, "buy_alert"):
+			return "ENTRY_SIGNALLED"
+		case strings.EqualFold(decision.Action, "sell_alert"):
+			return "EXIT_SIGNALLED"
+		default:
+			return "FLAT"
+		}
+	default:
+		if strings.EqualFold(decision.Action, "buy_alert") {
+			return "ENTRY_SIGNALLED"
+		}
+		return "FLAT"
+	}
+}
+
+func signalRegimeForDecision(decision model.DecisionRecord) string {
+	if decision.Reason != "" {
+		return decision.Reason
+	}
+	return strings.ToUpper(strings.ReplaceAll(decision.Action, "_", " "))
+}
+
+func signalReasonsForDecision(decision model.DecisionRecord) []string {
+	reason := strings.TrimSpace(decision.Reason)
+	if reason == "" {
+		return nil
+	}
+	parts := strings.Split(reason, ";")
+	reasons := make([]string, 0, len(parts))
+	for _, part := range parts {
+		candidate := strings.TrimSpace(part)
+		if candidate != "" {
+			reasons = append(reasons, candidate)
+		}
+	}
+	if len(reasons) == 0 {
+		return nil
+	}
+	return reasons
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

@@ -51,7 +51,8 @@ jobs:
           FIREBASE_PROJECT_ID: trade-signal-engine
           ENVIRONMENT: production
           STORE_BACKEND: firestore
-          NOTIFICATION_BACKEND: collapse
+          NOTIFICATION_BACKEND: fcm
+          FCM_TOPIC: trade-signal-engine
           API_PORT: 18080
         run: |
           set -e

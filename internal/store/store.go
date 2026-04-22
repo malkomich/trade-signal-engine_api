@@ -13,6 +13,7 @@ var ErrNotFound = errors.New("not found")
 
 type Store interface {
 	SaveDecision(context.Context, model.DecisionRecord) error
+	SaveSignalEvent(context.Context, model.SignalEvent) error
 	ListDecisions(context.Context, string) ([]model.DecisionRecord, error)
 	GetSession(context.Context, string) (model.SessionSummary, error)
 	UpsertSession(context.Context, model.SessionSummary) error

@@ -33,6 +33,11 @@ func (s *FirestoreStore) SaveDecision(ctx context.Context, record model.Decision
 	return err
 }
 
+func (s *FirestoreStore) SaveSignalEvent(ctx context.Context, event model.SignalEvent) error {
+	_, err := s.client.Collection(model.CollectionSignalEvents).Doc(event.ID).Set(ctx, event)
+	return err
+}
+
 func (s *FirestoreStore) ListDecisions(ctx context.Context, sessionID string) ([]model.DecisionRecord, error) {
 	docs, err := s.client.Collection(model.CollectionDecisionEvents).Where("session_id", "==", sessionID).OrderBy("created_at", firestore.Asc).Documents(ctx).GetAll()
 	if err != nil {
