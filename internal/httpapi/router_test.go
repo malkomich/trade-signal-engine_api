@@ -100,3 +100,26 @@ func TestAcceptAndExitUpdateSessionStateFromLocalWindowState(t *testing.T) {
 		t.Fatalf("expected closed trade window, got %#v", windows)
 	}
 }
+
+func TestExitWithoutOpenWindowReturnsNotFound(t *testing.T) {
+	st := store.NewMemoryStore()
+	if err := st.UpsertSession(nil, model.SessionSummary{ID: "session-1", Status: "live"}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	router := NewRouter(st, nil, slog.Default())
+	exitReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/exit", strings.NewReader(`{"symbol":"NVDA","entry_score":0.82,"exit_score":0.79}`))
+	exitRR := httptest.NewRecorder()
+	router.ServeHTTP(exitRR, exitReq)
+
+	if exitRR.Code != http.StatusNotFound {
+		t.Fatalf("expected exit status 404 without open window, got %d", exitRR.Code)
+	}
+	decisions, err := st.ListDecisions(nil, "session-1")
+	if err != nil {
+		t.Fatalf("list decisions: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("expected no persisted decisions when exit precondition fails, got %#v", decisions)
+	}
+}

@@ -75,7 +75,6 @@ func (s *MemoryStore) SaveWindow(_ context.Context, window model.TradeWindow) er
 	for index, existing := range items {
 		if existing.ID == window.ID {
 			items[index] = window
-			s.windows[window.SessionID] = items
 			return nil
 		}
 	}

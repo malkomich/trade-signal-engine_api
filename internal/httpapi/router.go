@@ -227,6 +227,10 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 		writeError(w, http.StatusBadRequest, "unsupported session action")
 		return
 	}
+	if action == "exit" && !hasOpenWindow(windows, payload.Symbol) {
+		writeError(w, http.StatusNotFound, "open trade window not found")
+		return
+	}
 
 	if err := r.store.SaveDecision(req.Context(), record); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save decision")
@@ -305,6 +309,7 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 		writeError(w, http.StatusInternalServerError, "failed to update session")
 		return
 	}
+	r.publishNotification(req.Context(), record)
 	writeJSON(w, http.StatusCreated, record)
 }
 
@@ -313,18 +318,29 @@ func (r *Router) closeOpenWindow(ctx context.Context, windows []model.TradeWindo
 		if windows[index].Symbol != symbol || windows[index].Status != "open" {
 			continue
 		}
+		windowToClose := windows[index]
 		closedAt := record.CreatedAt
-		windows[index].Status = "closed"
-		windows[index].ExitDecisionID = record.ID
-		windows[index].ClosedAt = &closedAt
-		windows[index].ExitScore = record.ExitScore
-		windows[index].UpdatedAt = record.CreatedAt
-		if err := r.store.SaveWindow(ctx, windows[index]); err != nil {
+		windowToClose.Status = "closed"
+		windowToClose.ExitDecisionID = record.ID
+		windowToClose.ClosedAt = &closedAt
+		windowToClose.ExitScore = record.ExitScore
+		windowToClose.UpdatedAt = record.CreatedAt
+		if err := r.store.SaveWindow(ctx, windowToClose); err != nil {
 			return nil, nil, err
 		}
+		windows[index] = windowToClose
 		return &windows[index], windows, nil
 	}
 	return nil, windows, store.ErrNotFound
+}
+
+func hasOpenWindow(windows []model.TradeWindow, symbol string) bool {
+	for _, window := range windows {
+		if window.Symbol == symbol && window.Status == "open" {
+			return true
+		}
+	}
+	return false
 }
 
 func countOpenWindows(windows []model.TradeWindow) int {
@@ -418,6 +434,15 @@ func signalStateForDecision(decision model.DecisionRecord) string {
 		return "REJECTED"
 	case model.EventTypeDecisionAcknowledged:
 		return "CLOSED"
+	case model.EventTypeDecisionCreated:
+		switch {
+		case strings.EqualFold(decision.Action, "buy_alert"):
+			return "ENTRY_SIGNALLED"
+		case strings.EqualFold(decision.Action, "sell_alert"):
+			return "EXIT_SIGNALLED"
+		default:
+			return "FLAT"
+		}
 	default:
 		if strings.EqualFold(decision.Action, "buy_alert") {
 			return "ENTRY_SIGNALLED"
@@ -434,10 +459,11 @@ func signalRegimeForDecision(decision model.DecisionRecord) string {
 }
 
 func signalReasonsForDecision(decision model.DecisionRecord) []string {
-	if decision.Reason == "" {
+	reason := strings.TrimSpace(decision.Reason)
+	if reason == "" {
 		return nil
 	}
-	parts := strings.Split(decision.Reason, ";")
+	parts := strings.Split(reason, ";")
 	reasons := make([]string, 0, len(parts))
 	for _, part := range parts {
 		candidate := strings.TrimSpace(part)
@@ -446,7 +472,7 @@ func signalReasonsForDecision(decision model.DecisionRecord) []string {
 		}
 	}
 	if len(reasons) == 0 {
-		return []string{decision.Reason}
+		return nil
 	}
 	return reasons
 }
