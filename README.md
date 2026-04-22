@@ -1,6 +1,6 @@
 # Trade Signal Engine API
 
-HTTP API for session decisions, windows, and operational summaries.
+HTTP API for session decisions, windows, live signal events, and operational summaries.
 
 ## Stack
 
@@ -56,7 +56,8 @@ make build
 - `ENVIRONMENT`: runtime environment label, default `local`
 - `FIREBASE_PROJECT_ID`: Firebase project ID for Firestore
 - `STORE_BACKEND`: `memory` or `firestore`
-- `NOTIFICATION_BACKEND`: `noop` or `collapse`
+- `NOTIFICATION_BACKEND`: `noop`, `collapse`, or `fcm`
+- `FCM_TOPIC`: topic name used when `NOTIFICATION_BACKEND=fcm`, default `trade-signal-engine`
 
 ## API
 
@@ -70,6 +71,7 @@ make build
 - `GET /v1/sessions/{id}/analytics`
 - `GET /v1/sessions/{id}/analytics/export`
 - `POST /v1/sessions/{id}/accept`
+- `POST /v1/sessions/{id}/exit`
 - `POST /v1/sessions/{id}/reject`
 - `POST /v1/sessions/{id}/ack`
 
@@ -87,6 +89,9 @@ These repository variables are also useful for tooling and local automation:
 
 - `GOOGLE_CLOUD_PROJECT=trade-signal-engine`
 - `GCP_PROJECT_ID=trade-signal-engine`
+
+The API also writes live signal rows to Firestore in `signal_events`, which is what the
+Firebase-hosted admin dashboard reads for real-time triage.
 
 The public proxy points `https://tradesignalengine.backend.synapsesea.com/api` to this API
 container through the local port published by Compose.

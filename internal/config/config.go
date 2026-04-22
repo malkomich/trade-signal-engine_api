@@ -8,6 +8,7 @@ type Config struct {
 	ProjectID     string
 	StoreBackend  string
 	NotifyBackend string
+	NotifyTopic   string
 }
 
 func FromEnv() Config {
@@ -17,6 +18,7 @@ func FromEnv() Config {
 		ProjectID:     os.Getenv("FIREBASE_PROJECT_ID"),
 		StoreBackend:  getenv("STORE_BACKEND", "memory"),
 		NotifyBackend: getenv("NOTIFICATION_BACKEND", "noop"),
+		NotifyTopic:   getenv("FCM_TOPIC", "trade-signal-engine"),
 	}
 	return cfg
 }

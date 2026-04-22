@@ -25,6 +25,19 @@ type DecisionRecord struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+type SignalEvent struct {
+	ID         string    `json:"id"`
+	SessionID  string    `json:"session_id"`
+	Symbol     string    `json:"symbol"`
+	State      string    `json:"state"`
+	EntryScore float64   `json:"entry_score"`
+	ExitScore  float64   `json:"exit_score"`
+	Regime     string    `json:"regime"`
+	Reasons    []string  `json:"reasons"`
+	Timestamp  time.Time `json:"timestamp"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type SessionSummary struct {
 	ID             string    `json:"id"`
 	Status         string    `json:"status"`

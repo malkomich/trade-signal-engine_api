@@ -25,8 +25,16 @@ func main() {
 		os.Exit(1)
 	}
 	var notifier notify.Publisher = notify.NoopPublisher{}
-	if cfg.NotifyBackend == "collapse" {
+	switch cfg.NotifyBackend {
+	case "collapse":
 		notifier = notify.NewCollapsingPublisher(nil, 2*time.Minute)
+	case "fcm":
+		fcmPublisher, err := notify.NewFCMPublisher(ctx, cfg.ProjectID, cfg.NotifyTopic)
+		if err != nil {
+			logger.Error("fcm publisher initialization failed", "error", err)
+			os.Exit(1)
+		}
+		notifier = notify.NewCollapsingPublisher(fcmPublisher, 2*time.Minute)
 	}
 
 	srv := &http.Server{

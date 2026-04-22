@@ -11,6 +11,7 @@ import (
 type MemoryStore struct {
 	mu        sync.RWMutex
 	decisions map[string][]model.DecisionRecord
+	signals   map[string][]model.SignalEvent
 	sessions  map[string]model.SessionSummary
 	windows   map[string][]model.TradeWindow
 	snapshots map[string][]model.WindowSnapshot
@@ -20,6 +21,7 @@ type MemoryStore struct {
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		decisions: make(map[string][]model.DecisionRecord),
+		signals:   make(map[string][]model.SignalEvent),
 		sessions:  make(map[string]model.SessionSummary),
 		windows:   make(map[string][]model.TradeWindow),
 		snapshots: make(map[string][]model.WindowSnapshot),
@@ -31,6 +33,13 @@ func (s *MemoryStore) SaveDecision(_ context.Context, record model.DecisionRecor
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.decisions[record.SessionID] = append(s.decisions[record.SessionID], record)
+	return nil
+}
+
+func (s *MemoryStore) SaveSignalEvent(_ context.Context, event model.SignalEvent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.signals[event.SessionID] = append(s.signals[event.SessionID], event)
 	return nil
 }
 
@@ -62,7 +71,15 @@ func (s *MemoryStore) UpsertSession(_ context.Context, session model.SessionSumm
 func (s *MemoryStore) SaveWindow(_ context.Context, window model.TradeWindow) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.windows[window.SessionID] = append(s.windows[window.SessionID], window)
+	items := s.windows[window.SessionID]
+	for index, existing := range items {
+		if existing.ID == window.ID {
+			items[index] = window
+			s.windows[window.SessionID] = items
+			return nil
+		}
+	}
+	s.windows[window.SessionID] = append(items, window)
 	return nil
 }
 
@@ -70,6 +87,7 @@ func (s *MemoryStore) ListWindows(_ context.Context, sessionID string) ([]model.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	items := append([]model.TradeWindow(nil), s.windows[sessionID]...)
+	sort.Slice(items, func(i, j int) bool { return items[i].OpenedAt.Before(items[j].OpenedAt) })
 	return items, nil
 }
 
