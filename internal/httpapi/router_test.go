@@ -123,3 +123,30 @@ func TestExitWithoutOpenWindowReturnsNotFound(t *testing.T) {
 		t.Fatalf("expected no persisted decisions when exit precondition fails, got %#v", decisions)
 	}
 }
+
+func TestMarketSnapshotsRoundTrip(t *testing.T) {
+	st := store.NewMemoryStore()
+	router := NewRouter(st, nil, slog.Default())
+
+	postReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"NVDA","session_id":"session-1","timestamp":"2026-04-22T13:30:00Z","close":123.45,"event_type":"market.snapshot"}`))
+	postRR := httptest.NewRecorder()
+	router.ServeHTTP(postRR, postReq)
+	if postRR.Code != http.StatusCreated {
+		t.Fatalf("expected market snapshot status 201, got %d: %s", postRR.Code, postRR.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/market-snapshots", nil)
+	getRR := httptest.NewRecorder()
+	router.ServeHTTP(getRR, getReq)
+	if getRR.Code != http.StatusOK {
+		t.Fatalf("expected market snapshot status 200, got %d", getRR.Code)
+	}
+
+	var snapshots []model.MarketSnapshot
+	if err := json.Unmarshal(getRR.Body.Bytes(), &snapshots); err != nil {
+		t.Fatalf("expected valid json body: %v", err)
+	}
+	if len(snapshots) != 1 || snapshots[0].Symbol != "NVDA" {
+		t.Fatalf("expected persisted market snapshot, got %#v", snapshots)
+	}
+}

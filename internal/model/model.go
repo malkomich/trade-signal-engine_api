@@ -38,6 +38,43 @@ type SignalEvent struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+type MarketSnapshot struct {
+	ID              string    `json:"id"`
+	SessionID       string    `json:"session_id"`
+	Symbol          string    `json:"symbol"`
+	Timestamp       time.Time `json:"timestamp"`
+	Open            float64   `json:"open"`
+	High            float64   `json:"high"`
+	Low             float64   `json:"low"`
+	Close           float64   `json:"close"`
+	Volume          float64   `json:"volume"`
+	SMAFast         float64   `json:"sma_fast"`
+	SMASlow         float64   `json:"sma_slow"`
+	EMAFast         float64   `json:"ema_fast"`
+	EMASlow         float64   `json:"ema_slow"`
+	VWAP            float64   `json:"vwap"`
+	RSI             float64   `json:"rsi"`
+	ATR             float64   `json:"atr"`
+	PlusDI          float64   `json:"plus_di"`
+	MinusDI         float64   `json:"minus_di"`
+	ADX             float64   `json:"adx"`
+	MACD            float64   `json:"macd"`
+	MACDSignal      float64   `json:"macd_signal"`
+	MACDHistogram   float64   `json:"macd_histogram"`
+	StochasticK     float64   `json:"stochastic_k"`
+	StochasticD     float64   `json:"stochastic_d"`
+	EntryScore      float64   `json:"entry_score"`
+	ExitScore       float64   `json:"exit_score"`
+	EventType       string    `json:"event_type"`
+	SignalAction    string    `json:"signal_action"`
+	SignalState     string    `json:"signal_state"`
+	SignalRegime    string    `json:"signal_regime"`
+	BenchmarkSymbol string    `json:"benchmark_symbol,omitempty"`
+	Reasons         []string  `json:"reasons"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
 type SessionSummary struct {
 	ID             string    `json:"id"`
 	Status         string    `json:"status"`

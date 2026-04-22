@@ -41,6 +41,7 @@ func (r *Router) root(w http.ResponseWriter, _ *http.Request) {
 			"/v1/decisions",
 			"/v1/sessions/{id}",
 			"/v1/sessions/{id}/windows",
+			"/v1/sessions/{id}/market-snapshots",
 			"/v1/sessions/{id}/analytics",
 			"/v1/sessions/{id}/analytics/export",
 			"/v1/sessions/{id}/accept",
@@ -124,8 +125,11 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if len(parts) == 2 && req.Method == http.MethodPost {
-		r.sessionAction(w, req, sessionID, parts[1])
-		return
+		switch parts[1] {
+		case "accept", "exit", "reject", "ack":
+			r.sessionAction(w, req, sessionID, parts[1])
+			return
+		}
 	}
 	if len(parts) == 2 && parts[1] == "windows" && req.Method == http.MethodGet {
 		windows, err := r.store.ListWindows(req.Context(), sessionID)
@@ -134,6 +138,76 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, windows)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "market-snapshots" {
+		switch req.Method {
+		case http.MethodGet:
+			snapshots, err := r.store.ListMarketSnapshots(req.Context(), sessionID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to load market snapshots")
+				return
+			}
+			writeJSON(w, http.StatusOK, snapshots)
+			return
+		case http.MethodPost:
+			var payload model.MarketSnapshot
+			if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid json payload")
+				return
+			}
+			if payload.SessionID == "" {
+				payload.SessionID = sessionID
+			}
+			if payload.SessionID != sessionID {
+				writeError(w, http.StatusBadRequest, "session_id does not match path")
+				return
+			}
+			if payload.Symbol == "" {
+				writeError(w, http.StatusBadRequest, "symbol is required")
+				return
+			}
+			if payload.Timestamp.IsZero() {
+				writeError(w, http.StatusBadRequest, "timestamp is required")
+				return
+			}
+			if payload.ID == "" {
+				payload.ID = payload.SessionID + ":" + payload.Symbol + ":" + payload.Timestamp.UTC().Format(time.RFC3339Nano)
+			}
+			if payload.EventType == "" {
+				payload.EventType = "market.snapshot"
+			}
+			if payload.SignalAction == "" {
+				payload.SignalAction = "HOLD"
+			}
+			if payload.SignalState == "" {
+				payload.SignalState = "FLAT"
+			}
+			if payload.SignalRegime == "" {
+				payload.SignalRegime = "Live market session"
+			}
+			if payload.BenchmarkSymbol == "" {
+				payload.BenchmarkSymbol = "IXIC"
+			}
+			if payload.CreatedAt.IsZero() {
+				payload.CreatedAt = payload.Timestamp
+			}
+			if payload.UpdatedAt.IsZero() {
+				payload.UpdatedAt = payload.Timestamp
+			}
+			if err := r.store.SaveMarketSnapshot(req.Context(), payload); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to save market snapshot")
+				return
+			}
+			writeJSON(w, http.StatusCreated, payload)
+			return
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+	}
+	if len(parts) == 2 && req.Method == http.MethodPost {
+		r.sessionAction(w, req, sessionID, parts[1])
 		return
 	}
 	if len(parts) == 2 && parts[1] == "analytics" && req.Method == http.MethodGet {
@@ -235,7 +309,6 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 		writeError(w, http.StatusInternalServerError, "failed to save decision")
 		return
 	}
-	r.publishNotification(req.Context(), record)
 	session, err := r.store.GetSession(req.Context(), sessionID)
 	if err != nil && err != store.ErrNotFound {
 		writeError(w, http.StatusInternalServerError, "failed to load session")

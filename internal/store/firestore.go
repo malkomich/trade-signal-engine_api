@@ -38,6 +38,27 @@ func (s *FirestoreStore) SaveSignalEvent(ctx context.Context, event model.Signal
 	return err
 }
 
+func (s *FirestoreStore) SaveMarketSnapshot(ctx context.Context, snapshot model.MarketSnapshot) error {
+	_, err := s.client.Collection(model.CollectionMarketSnapshots).Doc(snapshot.ID).Set(ctx, snapshot)
+	return err
+}
+
+func (s *FirestoreStore) ListMarketSnapshots(ctx context.Context, sessionID string) ([]model.MarketSnapshot, error) {
+	docs, err := s.client.Collection(model.CollectionMarketSnapshots).Where("session_id", "==", sessionID).OrderBy("timestamp", firestore.Asc).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.MarketSnapshot, 0, len(docs))
+	for _, doc := range docs {
+		var snapshot model.MarketSnapshot
+		if err := doc.DataTo(&snapshot); err != nil {
+			return nil, err
+		}
+		items = append(items, snapshot)
+	}
+	return items, nil
+}
+
 func (s *FirestoreStore) ListDecisions(ctx context.Context, sessionID string) ([]model.DecisionRecord, error) {
 	docs, err := s.client.Collection(model.CollectionDecisionEvents).Where("session_id", "==", sessionID).OrderBy("created_at", firestore.Asc).Documents(ctx).GetAll()
 	if err != nil {
