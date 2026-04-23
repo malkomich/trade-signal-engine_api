@@ -31,7 +31,7 @@ API_PORT=18080
 The compose file is production-oriented for the Raspberry Pi, so it defaults to `production`
 runtime settings and expects Firestore credentials to be mounted explicitly.
 
-The compose file uses the project name `trade-signal-engine-server`, which keeps the API
+The compose file uses the project name `trading-signal-engine-server`, which keeps the API
 container grouped with the edge worker in Dozzle on the Raspberry Pi.
 
 The container now exposes a landing page on `http://localhost:18080/` and the proxy can route

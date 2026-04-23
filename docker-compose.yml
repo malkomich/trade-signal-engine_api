@@ -1,4 +1,4 @@
-name: trade-signal-engine-server
+name: trading-signal-engine-server
 
 services:
   api:
