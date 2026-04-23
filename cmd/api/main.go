@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +15,12 @@ import (
 )
 
 func main() {
+	healthcheck := flag.Bool("healthcheck", false, "probe the local API health endpoint and exit")
+	flag.Parse()
+	if *healthcheck {
+		os.Exit(runHealthcheck())
+	}
+
 	ctx := context.Background()
 	cfg := config.FromEnv()
 
@@ -52,4 +59,24 @@ func main() {
 		logger.Error("server stopped unexpectedly", "error", err)
 		os.Exit(1)
 	}
+}
+
+func runHealthcheck() int {
+	addr := os.Getenv("HTTP_ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+	if addr[0] == ':' {
+		addr = "127.0.0.1" + addr
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://" + addr + "/healthz")
+	if err != nil {
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
 }
