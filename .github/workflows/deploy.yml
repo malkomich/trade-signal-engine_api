@@ -56,7 +56,7 @@ jobs:
           API_PORT: 18080
         run: |
           set -e
-          docker compose up -d --build --remove-orphans
+          docker compose up -d --build
           python - <<'PY'
           import os
           import sys
