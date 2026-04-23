@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -44,7 +45,7 @@ func (s *FirestoreStore) SaveMarketSnapshot(ctx context.Context, snapshot model.
 }
 
 func (s *FirestoreStore) ListMarketSnapshots(ctx context.Context, sessionID string) ([]model.MarketSnapshot, error) {
-	docs, err := s.client.Collection(model.CollectionMarketSnapshots).Where("session_id", "==", sessionID).OrderBy("timestamp", firestore.Asc).Documents(ctx).GetAll()
+	docs, err := s.client.Collection(model.CollectionMarketSnapshots).Where("session_id", "==", sessionID).Documents(ctx).GetAll()
 	if err != nil {
 		return nil, err
 	}
@@ -56,11 +57,20 @@ func (s *FirestoreStore) ListMarketSnapshots(ctx context.Context, sessionID stri
 		}
 		items = append(items, snapshot)
 	}
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].Timestamp.Equal(items[j].Timestamp) {
+			return items[i].Timestamp.Before(items[j].Timestamp)
+		}
+		if items[i].Symbol != items[j].Symbol {
+			return items[i].Symbol < items[j].Symbol
+		}
+		return items[i].ID < items[j].ID
+	})
 	return items, nil
 }
 
 func (s *FirestoreStore) ListDecisions(ctx context.Context, sessionID string) ([]model.DecisionRecord, error) {
-	docs, err := s.client.Collection(model.CollectionDecisionEvents).Where("session_id", "==", sessionID).OrderBy("created_at", firestore.Asc).Documents(ctx).GetAll()
+	docs, err := s.client.Collection(model.CollectionDecisionEvents).Where("session_id", "==", sessionID).Documents(ctx).GetAll()
 	if err != nil {
 		return nil, err
 	}
@@ -72,6 +82,12 @@ func (s *FirestoreStore) ListDecisions(ctx context.Context, sessionID string) ([
 		}
 		items = append(items, record)
 	}
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].CreatedAt.Before(items[j].CreatedAt)
+		}
+		return items[i].ID < items[j].ID
+	})
 	return items, nil
 }
 
@@ -100,7 +116,7 @@ func (s *FirestoreStore) SaveWindow(ctx context.Context, window model.TradeWindo
 }
 
 func (s *FirestoreStore) ListWindows(ctx context.Context, sessionID string) ([]model.TradeWindow, error) {
-	docs, err := s.client.Collection(model.CollectionTradeWindows).Where("session_id", "==", sessionID).OrderBy("opened_at", firestore.Asc).Documents(ctx).GetAll()
+	docs, err := s.client.Collection(model.CollectionTradeWindows).Where("session_id", "==", sessionID).Documents(ctx).GetAll()
 	if err != nil {
 		return nil, err
 	}
@@ -112,6 +128,12 @@ func (s *FirestoreStore) ListWindows(ctx context.Context, sessionID string) ([]m
 		}
 		items = append(items, window)
 	}
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].OpenedAt.Equal(items[j].OpenedAt) {
+			return items[i].OpenedAt.Before(items[j].OpenedAt)
+		}
+		return items[i].ID < items[j].ID
+	})
 	return items, nil
 }
 
@@ -121,7 +143,7 @@ func (s *FirestoreStore) SaveWindowSnapshot(ctx context.Context, snapshot model.
 }
 
 func (s *FirestoreStore) ListWindowSnapshots(ctx context.Context, sessionID string) ([]model.WindowSnapshot, error) {
-	docs, err := s.client.Collection(model.CollectionWindowSnapshots).Where("session_id", "==", sessionID).OrderBy("captured_at", firestore.Asc).Documents(ctx).GetAll()
+	docs, err := s.client.Collection(model.CollectionWindowSnapshots).Where("session_id", "==", sessionID).Documents(ctx).GetAll()
 	if err != nil {
 		return nil, err
 	}
@@ -133,6 +155,15 @@ func (s *FirestoreStore) ListWindowSnapshots(ctx context.Context, sessionID stri
 		}
 		items = append(items, snapshot)
 	}
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].CapturedAt.Equal(items[j].CapturedAt) {
+			return items[i].CapturedAt.Before(items[j].CapturedAt)
+		}
+		if items[i].Symbol != items[j].Symbol {
+			return items[i].Symbol < items[j].Symbol
+		}
+		return items[i].ID < items[j].ID
+	})
 	return items, nil
 }
 
