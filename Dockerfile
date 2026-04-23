@@ -20,6 +20,8 @@ COPY --from=build /out/api /app/api
 
 EXPOSE 8080
 
-USER nonroot:nonroot
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD ["/app/api", "--healthcheck"]
+
+USER 0
 
 ENTRYPOINT ["/app/api"]
