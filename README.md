@@ -56,7 +56,7 @@ make build
 - `ENVIRONMENT`: runtime environment label, default `local`
 - `FIREBASE_PROJECT_ID`: Firebase project ID for the realtime backend
 - `FIREBASE_DATABASE_URL`: Realtime Database URL for production. Set this when the database is not using the default `https://<project-id>-default-rtdb.firebaseio.com/` host.
-- `STORE_BACKEND`: `memory`, `rtdb`, or `firestore`
+- `STORE_BACKEND`: `memory` or `rtdb`
 - `NOTIFICATION_BACKEND`: `noop`, `collapse`, or `fcm`
 - `FCM_TOPIC`: topic name used when `NOTIFICATION_BACKEND=fcm`, default `trade-signal-engine`
 

@@ -44,11 +44,11 @@ func NewRealtimeDatabaseStore(ctx context.Context, projectID string, databaseURL
 }
 
 func (s *RealtimeDatabaseStore) SaveDecision(ctx context.Context, record model.DecisionRecord) error {
-	return s.client.NewRef(collectionPath(model.CollectionDecisionEvents, record.ID)).Set(ctx, record)
+	return s.client.NewRef(nestedCollectionPath(model.CollectionDecisionEvents, record.SessionID, record.ID)).Set(ctx, record)
 }
 
 func (s *RealtimeDatabaseStore) SaveSignalEvent(ctx context.Context, event model.SignalEvent) error {
-	return s.client.NewRef(collectionPath(model.CollectionSignalEvents, event.ID)).Set(ctx, event)
+	return s.client.NewRef(nestedCollectionPath(model.CollectionSignalEvents, event.SessionID, event.ID)).Set(ctx, event)
 }
 
 func (s *RealtimeDatabaseStore) SaveMarketSnapshot(ctx context.Context, snapshot model.MarketSnapshot) error {
@@ -87,7 +87,7 @@ func (s *RealtimeDatabaseStore) ListMarketSnapshots(ctx context.Context, session
 }
 
 func (s *RealtimeDatabaseStore) ListDecisions(ctx context.Context, sessionID string) ([]model.DecisionRecord, error) {
-	items, err := loadSessionCollection[model.DecisionRecord](ctx, s.client, model.CollectionDecisionEvents, sessionID)
+	items, err := loadCollection[model.DecisionRecord](ctx, s.client.NewRef(collectionPath(model.CollectionDecisionEvents, sessionID)))
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func (s *RealtimeDatabaseStore) UpsertSession(ctx context.Context, session model
 }
 
 func (s *RealtimeDatabaseStore) ListConfigVersions(ctx context.Context, sessionID string) ([]model.ConfigVersion, error) {
-	items, err := loadSessionCollection[model.ConfigVersion](ctx, s.client, model.CollectionConfigVersions, sessionID)
+	items, err := loadCollection[model.ConfigVersion](ctx, s.client.NewRef(collectionPath(model.CollectionConfigVersions, sessionID)))
 	if err != nil {
 		return nil, err
 	}
@@ -135,11 +135,11 @@ func (s *RealtimeDatabaseStore) ListConfigVersions(ctx context.Context, sessionI
 
 func (s *RealtimeDatabaseStore) SaveWindow(ctx context.Context, window model.TradeWindow) error {
 	window.UpdatedAt = time.Now().UTC()
-	return s.client.NewRef(collectionPath(model.CollectionTradeWindows, window.ID)).Set(ctx, window)
+	return s.client.NewRef(nestedCollectionPath(model.CollectionTradeWindows, window.SessionID, window.ID)).Set(ctx, window)
 }
 
 func (s *RealtimeDatabaseStore) ListWindows(ctx context.Context, sessionID string) ([]model.TradeWindow, error) {
-	items, err := loadSessionCollection[model.TradeWindow](ctx, s.client, model.CollectionTradeWindows, sessionID)
+	items, err := loadCollection[model.TradeWindow](ctx, s.client.NewRef(collectionPath(model.CollectionTradeWindows, sessionID)))
 	if err != nil {
 		return nil, err
 	}
@@ -153,15 +153,20 @@ func (s *RealtimeDatabaseStore) ListWindows(ctx context.Context, sessionID strin
 }
 
 func (s *RealtimeDatabaseStore) SaveWindowSnapshot(ctx context.Context, snapshot model.WindowSnapshot) error {
-	return s.client.NewRef(collectionPath(model.CollectionWindowSnapshots, snapshot.ID)).Set(ctx, snapshot)
+	return s.client.NewRef(nestedCollectionPath(
+		model.CollectionWindowSnapshots,
+		snapshot.SessionID,
+		marketDayKeyForTime(snapshot.CapturedAt),
+		snapshot.ID,
+	)).Set(ctx, snapshot)
 }
 
 func (s *RealtimeDatabaseStore) SaveWindowOptimization(ctx context.Context, optimization model.WindowOptimization) error {
-	return s.client.NewRef(collectionPath(model.CollectionWindowOptimizations, optimization.ID)).Set(ctx, optimization)
+	return s.client.NewRef(nestedCollectionPath(model.CollectionWindowOptimizations, optimization.SessionID, optimization.ID)).Set(ctx, optimization)
 }
 
 func (s *RealtimeDatabaseStore) ListWindowSnapshots(ctx context.Context, sessionID string) ([]model.WindowSnapshot, error) {
-	items, err := loadSessionCollection[model.WindowSnapshot](ctx, s.client, model.CollectionWindowSnapshots, sessionID)
+	items, err := loadNestedCollection[model.WindowSnapshot](ctx, s.client.NewRef(collectionPath(model.CollectionWindowSnapshots, sessionID)))
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +183,7 @@ func (s *RealtimeDatabaseStore) ListWindowSnapshots(ctx context.Context, session
 }
 
 func (s *RealtimeDatabaseStore) ListWindowOptimizations(ctx context.Context, sessionID string) ([]model.WindowOptimization, error) {
-	items, err := loadSessionCollection[model.WindowOptimization](ctx, s.client, model.CollectionWindowOptimizations, sessionID)
+	items, err := loadCollection[model.WindowOptimization](ctx, s.client.NewRef(collectionPath(model.CollectionWindowOptimizations, sessionID)))
 	if err != nil {
 		return nil, err
 	}
@@ -231,10 +236,9 @@ func marketDayKeyForTime(timestamp time.Time) string {
 	return timestamp.In(newYorkLocation).Format("2006-01-02")
 }
 
-func loadSessionCollection[T any](ctx context.Context, client *firebase_db.Client, collectionName string, sessionID string) ([]T, error) {
-	query := client.NewRef(collectionName).OrderByChild("session_id").EqualTo(sessionID)
+func loadCollection[T any](ctx context.Context, ref *firebase_db.Ref) ([]T, error) {
 	var raw map[string]T
-	if err := query.Get(ctx, &raw); err != nil {
+	if err := ref.Get(ctx, &raw); err != nil {
 		return nil, err
 	}
 	if len(raw) == 0 {
@@ -243,6 +247,23 @@ func loadSessionCollection[T any](ctx context.Context, client *firebase_db.Clien
 	items := make([]T, 0, len(raw))
 	for _, value := range raw {
 		items = append(items, value)
+	}
+	return items, nil
+}
+
+func loadNestedCollection[T any](ctx context.Context, ref *firebase_db.Ref) ([]T, error) {
+	var raw map[string]map[string]T
+	if err := ref.Get(ctx, &raw); err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 {
+		return []T{}, nil
+	}
+	items := make([]T, 0)
+	for _, bucket := range raw {
+		for _, value := range bucket {
+			items = append(items, value)
+		}
 	}
 	return items, nil
 }
