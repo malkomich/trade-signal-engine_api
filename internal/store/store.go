@@ -24,6 +24,7 @@ type Store interface {
 	ListWindows(context.Context, string) ([]model.TradeWindow, error)
 	SaveWindowSnapshot(context.Context, model.WindowSnapshot) error
 	ListWindowSnapshots(context.Context, string) ([]model.WindowSnapshot, error)
+	ListWindowOptimizations(context.Context, string) ([]model.WindowOptimization, error)
 	UpsertWindowSummary(context.Context, model.WindowAnalyticsSummary) error
 	GetWindowSummary(context.Context, string) (model.WindowAnalyticsSummary, error)
 }

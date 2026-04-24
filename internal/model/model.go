@@ -38,6 +38,7 @@ type ConfigVersion struct {
 type DecisionRecord struct {
 	ID         string    `json:"id" firestore:"id"`
 	SessionID  string    `json:"session_id" firestore:"session_id"`
+	WindowID   string    `json:"window_id,omitempty" firestore:"window_id,omitempty"`
 	Symbol     string    `json:"symbol" firestore:"symbol"`
 	Action     string    `json:"action" firestore:"action"`
 	Reason     string    `json:"reason" firestore:"reason"`
@@ -50,6 +51,7 @@ type DecisionRecord struct {
 type SignalEvent struct {
 	ID         string    `json:"id" firestore:"id"`
 	SessionID  string    `json:"session_id" firestore:"session_id"`
+	WindowID   string    `json:"window_id,omitempty" firestore:"window_id,omitempty"`
 	Symbol     string    `json:"symbol" firestore:"symbol"`
 	State      string    `json:"state" firestore:"state"`
 	EntryScore float64   `json:"entry_score" firestore:"entry_score"`
@@ -63,6 +65,7 @@ type SignalEvent struct {
 type MarketSnapshot struct {
 	ID              string    `json:"id" firestore:"id"`
 	SessionID       string    `json:"session_id" firestore:"session_id"`
+	WindowID        string    `json:"window_id,omitempty" firestore:"window_id,omitempty"`
 	Symbol          string    `json:"symbol" firestore:"symbol"`
 	Timestamp       time.Time `json:"timestamp" firestore:"timestamp"`
 	Open            float64   `json:"open" firestore:"open"`
@@ -171,4 +174,35 @@ type DailyAnalyticsExport struct {
 	GeneratedAt     time.Time                     `json:"generated_at"`
 	SymbolSummaries []DailySymbolAnalyticsSummary `json:"symbol_summaries"`
 	MarketSummaries []DailyMarketAnalyticsSummary `json:"market_summaries"`
+}
+
+type WindowOptimization struct {
+	ID            string         `json:"id" firestore:"id"`
+	SessionID     string         `json:"session_id" firestore:"session_id"`
+	WindowID      string         `json:"window_id" firestore:"window_id"`
+	Symbol        string         `json:"symbol" firestore:"symbol"`
+	Day           string         `json:"day" firestore:"day"`
+	EntrySnapshot MarketSnapshot `json:"entry_snapshot" firestore:"entry_snapshot"`
+	ExitSnapshot  MarketSnapshot `json:"exit_snapshot" firestore:"exit_snapshot"`
+	EntryScore    float64        `json:"entry_score" firestore:"entry_score"`
+	ExitScore     float64        `json:"exit_score" firestore:"exit_score"`
+	ChangePct     float64        `json:"change_pct" firestore:"change_pct"`
+	Notes         string         `json:"notes" firestore:"notes"`
+	RequestedBy   string         `json:"requested_by,omitempty" firestore:"requested_by,omitempty"`
+	CreatedAt     time.Time      `json:"created_at" firestore:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at" firestore:"updated_at"`
+}
+
+type WindowOptimizationSummary struct {
+	SessionID             string             `json:"session_id"`
+	SampleCount           int                `json:"sample_count"`
+	AverageChangePct      float64            `json:"average_change_pct"`
+	AverageEntryScore     float64            `json:"average_entry_score"`
+	AverageExitScore      float64            `json:"average_exit_score"`
+	Symbols               []string           `json:"symbols"`
+	EntryProfile          map[string]float64 `json:"entry_profile"`
+	ExitProfile           map[string]float64 `json:"exit_profile"`
+	OptimizerLearningRate float64            `json:"optimizer_learning_rate"`
+	OptimizerBiasCap      float64            `json:"optimizer_bias_cap"`
+	UpdatedAt             time.Time          `json:"updated_at"`
 }

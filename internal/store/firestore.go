@@ -192,6 +192,31 @@ func (s *FirestoreStore) ListWindowSnapshots(ctx context.Context, sessionID stri
 	return items, nil
 }
 
+func (s *FirestoreStore) ListWindowOptimizations(ctx context.Context, sessionID string) ([]model.WindowOptimization, error) {
+	docs, err := s.client.Collection(model.CollectionWindowOptimizations).Where("session_id", "==", sessionID).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.WindowOptimization, 0, len(docs))
+	for _, doc := range docs {
+		var item model.WindowOptimization
+		if err := doc.DataTo(&item); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].CreatedAt.Before(items[j].CreatedAt)
+		}
+		if items[i].Symbol != items[j].Symbol {
+			return items[i].Symbol < items[j].Symbol
+		}
+		return items[i].ID < items[j].ID
+	})
+	return items, nil
+}
+
 func (s *FirestoreStore) UpsertWindowSummary(ctx context.Context, summary model.WindowAnalyticsSummary) error {
 	summary.UpdatedAt = time.Now().UTC()
 	_, err := s.client.Collection(model.CollectionWindowSummaries).Doc(summary.SessionID).Set(ctx, summary)
