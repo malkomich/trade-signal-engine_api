@@ -109,6 +109,31 @@ func (s *FirestoreStore) UpsertSession(ctx context.Context, session model.Sessio
 	return err
 }
 
+func (s *FirestoreStore) ListConfigVersions(ctx context.Context, sessionID string) ([]model.ConfigVersion, error) {
+	docs, err := s.client.Collection(model.CollectionConfigVersions).Where("session_id", "==", sessionID).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.ConfigVersion, 0, len(docs))
+	for _, doc := range docs {
+		var version model.ConfigVersion
+		if err := doc.DataTo(&version); err != nil {
+			return nil, err
+		}
+		items = append(items, version)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].UpdatedAt.Before(items[j].UpdatedAt)
+		}
+		if items[i].Version != items[j].Version {
+			return items[i].Version < items[j].Version
+		}
+		return items[i].ID < items[j].ID
+	})
+	return items, nil
+}
+
 func (s *FirestoreStore) SaveWindow(ctx context.Context, window model.TradeWindow) error {
 	window.UpdatedAt = time.Now().UTC()
 	_, err := s.client.Collection(model.CollectionTradeWindows).Doc(window.ID).Set(ctx, window)

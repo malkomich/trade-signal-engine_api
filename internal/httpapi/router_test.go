@@ -1,16 +1,27 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"trade-signal-engine-api/internal/model"
 	"trade-signal-engine-api/internal/store"
 )
+
+type configTestStore struct {
+	*store.MemoryStore
+	versions []model.ConfigVersion
+}
+
+func (s *configTestStore) ListConfigVersions(_ context.Context, _ string) ([]model.ConfigVersion, error) {
+	return append([]model.ConfigVersion(nil), s.versions...), nil
+}
 
 func TestRootEndpointReturnsServiceMetadata(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -34,6 +45,95 @@ func TestRootEndpointReturnsServiceMetadata(t *testing.T) {
 	routes, ok := payload["routes"].([]any)
 	if !ok || len(routes) == 0 {
 		t.Fatalf("expected routes array in payload, got %T %#v", payload["routes"], payload["routes"])
+	}
+}
+
+func TestSessionConfigEndpointReturnsSelectedVersion(t *testing.T) {
+	st := &configTestStore{
+		MemoryStore: store.NewMemoryStore(),
+		versions: []model.ConfigVersion{
+			{
+				ID:        "session-1:v18",
+				SessionID: "session-1",
+				Version:   "v18",
+				Status:    "archived",
+				Summary:   "previous config",
+				UpdatedAt: time.Date(2026, 4, 20, 15, 45, 0, 0, time.UTC),
+			},
+			{
+				ID:        "session-1:v19",
+				SessionID: "session-1",
+				Version:   "v19",
+				Status:    "active",
+				Summary:   "current config",
+				UpdatedAt: time.Date(2026, 4, 21, 15, 45, 0, 0, time.UTC),
+			},
+		},
+	}
+	if err := st.UpsertSession(context.Background(), model.SessionSummary{ID: "session-1", ConfigVersion: "v19"}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/config", nil)
+	rr := httptest.NewRecorder()
+
+	NewRouter(st, nil, slog.Default(), "IXIC").ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected valid json body: %v", err)
+	}
+	if got := payload["session_config_version"]; got != "v19" {
+		t.Fatalf("expected session config version v19, got %v", got)
+	}
+	selected, ok := payload["selected_version"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected selected_version object, got %#v", payload["selected_version"])
+	}
+	if got := selected["version"]; got != "v19" {
+		t.Fatalf("expected selected version v19, got %v", got)
+	}
+}
+
+func TestSelectSessionConfigVersionPrefersMostRecentActiveVersion(t *testing.T) {
+	versions := []model.ConfigVersion{
+		{ID: "session-1:v18", Version: "v18", Status: "active", UpdatedAt: time.Date(2026, 4, 20, 15, 45, 0, 0, time.UTC)},
+		{ID: "session-1:v19", Version: "v19", Status: "archived", UpdatedAt: time.Date(2026, 4, 21, 15, 45, 0, 0, time.UTC)},
+		{ID: "session-1:v20", Version: "v20", Status: "active", UpdatedAt: time.Date(2026, 4, 22, 15, 45, 0, 0, time.UTC)},
+	}
+
+	selected := selectSessionConfigVersion("", versions)
+	if selected == nil {
+		t.Fatalf("expected selected version, got nil")
+	}
+	if selected.Version != "v20" {
+		t.Fatalf("expected latest active version v20, got %q", selected.Version)
+	}
+}
+
+func TestSelectSessionConfigVersionFallsBackToLatestWhenNoActiveVersionExists(t *testing.T) {
+	versions := []model.ConfigVersion{
+		{ID: "session-1:v18", Version: "v18", Status: "archived", UpdatedAt: time.Date(2026, 4, 20, 15, 45, 0, 0, time.UTC)},
+		{ID: "session-1:v19", Version: "v19", Status: "candidate", UpdatedAt: time.Date(2026, 4, 21, 15, 45, 0, 0, time.UTC)},
+		{ID: "session-1:v20", Version: "v20", Status: "archived", UpdatedAt: time.Date(2026, 4, 22, 15, 45, 0, 0, time.UTC)},
+	}
+
+	selected := selectSessionConfigVersion("", versions)
+	if selected == nil {
+		t.Fatalf("expected selected version, got nil")
+	}
+	if selected.Version != "v20" {
+		t.Fatalf("expected latest version v20, got %q", selected.Version)
+	}
+}
+
+func TestSelectSessionConfigVersionReturnsNilForEmptyVersions(t *testing.T) {
+	selected := selectSessionConfigVersion("", nil)
+	if selected != nil {
+		t.Fatalf("expected nil selected version, got %#v", selected)
 	}
 }
 

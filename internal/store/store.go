@@ -19,6 +19,7 @@ type Store interface {
 	ListDecisions(context.Context, string) ([]model.DecisionRecord, error)
 	GetSession(context.Context, string) (model.SessionSummary, error)
 	UpsertSession(context.Context, model.SessionSummary) error
+	ListConfigVersions(context.Context, string) ([]model.ConfigVersion, error)
 	SaveWindow(context.Context, model.TradeWindow) error
 	ListWindows(context.Context, string) ([]model.TradeWindow, error)
 	SaveWindowSnapshot(context.Context, model.WindowSnapshot) error

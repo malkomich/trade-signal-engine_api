@@ -46,6 +46,18 @@ jobs:
           chmod 600 "$credentials_file"
           echo "FIREBASE_CREDENTIALS_FILE=$credentials_file" >> "$GITHUB_ENV"
 
+      - name: Remove legacy containers
+        run: |
+          set -e
+          for container in \
+            trade-signal-engine-server-api \
+            trade-signal-engine-server-api-1 \
+            trading-signal-engine-server-api \
+            trading-signal-engine-server-api-1
+          do
+            docker rm -f "$container" 2>/dev/null || true
+          done
+
       - name: Deploy on Raspberry Pi
         env:
           FIREBASE_PROJECT_ID: trade-signal-engine
