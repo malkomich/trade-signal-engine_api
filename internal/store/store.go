@@ -41,6 +41,16 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (Store, er
 			return st, nil
 		}
 		return nil, err
+<<<<<<< HEAD
+=======
+	case "firestore":
+		st, err := NewFirestoreStore(ctx, cfg.ProjectID)
+		if err == nil {
+			logger.Info("using firestore store", "project_id", cfg.ProjectID)
+			return st, nil
+		}
+		return nil, err
+>>>>>>> 3496ee5 (fix(api): scope rtdb reads and snapshot paths)
 	default:
 		logger.Warn("unknown store backend requested, using memory store", "store_backend", cfg.StoreBackend)
 		return NewMemoryStore(), nil
