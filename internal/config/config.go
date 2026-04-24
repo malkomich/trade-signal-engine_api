@@ -1,6 +1,11 @@
 package config
 
-import "os"
+import (
+	"fmt"
+	"os"
+)
+
+const defaultDatabaseURLTemplate = "https://%s-default-rtdb.firebaseio.com/"
 
 type Config struct {
 	HTTPAddr               string
@@ -25,9 +30,13 @@ func FromEnv() Config {
 		DefaultBenchmarkSymbol: getenv("MARKET_BENCHMARK_SYMBOL", "IXIC"),
 	}
 	if cfg.DatabaseURL == "" && cfg.ProjectID != "" {
-		cfg.DatabaseURL = "https://" + cfg.ProjectID + "-default-rtdb.firebaseio.com/"
+		cfg.DatabaseURL = defaultDatabaseURL(cfg.ProjectID)
 	}
 	return cfg
+}
+
+func defaultDatabaseURL(projectID string) string {
+	return fmt.Sprintf(defaultDatabaseURLTemplate, projectID)
 }
 
 func getenv(key, fallback string) string {
