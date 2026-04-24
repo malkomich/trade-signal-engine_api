@@ -165,7 +165,7 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 		}
 		selected := selectSessionConfigVersion(session.ConfigVersion, versions)
 		optimizationSummary := session.OptimizationSummary
-		if optimizationSummary.SessionID == "" && optimizationSummary.SampleCount == 0 {
+		if optimizationSummary == nil {
 			optimizations, err := r.store.ListWindowOptimizations(req.Context(), sessionID)
 			if err != nil {
 				slog.Warn("failed to load optimization history", "session", sessionID, "error", err)
@@ -330,8 +330,12 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 	switch action {
 	case "accept":
 		record.EventType = model.EventTypeDecisionAccepted
+		record.WindowID = sessionID + ":" + payload.Symbol + ":" + record.ID
 	case "exit":
 		record.EventType = model.EventTypeDecisionExited
+		if window := findOpenWindow(windows, payload.Symbol); window != nil {
+			record.WindowID = window.ID
+		}
 	case "reject":
 		record.EventType = model.EventTypeDecisionRejected
 	case "ack":
@@ -458,6 +462,15 @@ func selectSessionConfigVersion(sessionVersion string, versions []model.ConfigVe
 		}
 	}
 	return &versions[len(versions)-1]
+}
+
+func findOpenWindow(windows []model.TradeWindow, symbol string) *model.TradeWindow {
+	for index := range windows {
+		if windows[index].Symbol == symbol && windows[index].Status == "open" {
+			return &windows[index]
+		}
+	}
+	return nil
 }
 
 func (r *Router) closeOpenWindow(ctx context.Context, windows []model.TradeWindow, sessionID string, symbol string, record model.DecisionRecord) (*model.TradeWindow, []model.TradeWindow, error) {
@@ -629,7 +642,7 @@ func signalReasonsForDecision(decision model.DecisionRecord) []string {
 	return reasons
 }
 
-func buildWindowOptimizationSummary(sessionID string, optimizations []model.WindowOptimization) model.WindowOptimizationSummary {
+func buildWindowOptimizationSummary(sessionID string, optimizations []model.WindowOptimization) *model.WindowOptimizationSummary {
 	summary := model.WindowOptimizationSummary{
 		SessionID:             sessionID,
 		EntryProfile:          make(map[string]float64),
@@ -638,7 +651,7 @@ func buildWindowOptimizationSummary(sessionID string, optimizations []model.Wind
 		OptimizerBiasCap:      defaultOptimizerBiasCap,
 	}
 	if len(optimizations) == 0 {
-		return summary
+		return nil
 	}
 
 	entryTotals := make(map[string]float64)
@@ -670,7 +683,7 @@ func buildWindowOptimizationSummary(sessionID string, optimizations []model.Wind
 		summary.Symbols = append(summary.Symbols, symbol)
 	}
 	sort.Strings(summary.Symbols)
-	return summary
+	return &summary
 }
 
 func accumulateOptimizationProfile(totals map[string]float64, counts map[string]int, snapshot model.MarketSnapshot) {

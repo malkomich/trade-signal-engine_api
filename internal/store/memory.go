@@ -156,6 +156,21 @@ func (s *MemoryStore) ListWindowSnapshots(_ context.Context, sessionID string) (
 	return append([]model.WindowSnapshot(nil), s.snapshots[sessionID]...), nil
 }
 
+func (s *MemoryStore) SaveWindowOptimization(_ context.Context, optimization model.WindowOptimization) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := s.optimizations[optimization.SessionID]
+	for index, existing := range items {
+		if existing.ID == optimization.ID {
+			items[index] = optimization
+			s.optimizations[optimization.SessionID] = items
+			return nil
+		}
+	}
+	s.optimizations[optimization.SessionID] = append(items, optimization)
+	return nil
+}
+
 func (s *MemoryStore) ListWindowOptimizations(_ context.Context, sessionID string) ([]model.WindowOptimization, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

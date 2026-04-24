@@ -167,6 +167,11 @@ func (s *FirestoreStore) SaveWindowSnapshot(ctx context.Context, snapshot model.
 	return err
 }
 
+func (s *FirestoreStore) SaveWindowOptimization(ctx context.Context, optimization model.WindowOptimization) error {
+	_, err := s.client.Collection(model.CollectionWindowOptimizations).Doc(optimization.ID).Set(ctx, optimization)
+	return err
+}
+
 func (s *FirestoreStore) ListWindowSnapshots(ctx context.Context, sessionID string) ([]model.WindowSnapshot, error) {
 	docs, err := s.client.Collection(model.CollectionWindowSnapshots).Where("session_id", "==", sessionID).Documents(ctx).GetAll()
 	if err != nil {
