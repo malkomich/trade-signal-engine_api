@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	firebase "firebase.google.com/go/v4"
@@ -15,6 +16,14 @@ import (
 type RealtimeDatabaseStore struct {
 	client *firebase_db.Client
 }
+
+var newYorkLocation = func() *time.Location {
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		return time.UTC
+	}
+	return location
+}()
 
 func NewRealtimeDatabaseStore(ctx context.Context, projectID string, databaseURL string) (*RealtimeDatabaseStore, error) {
 	if projectID == "" {
@@ -43,40 +52,52 @@ func (s *RealtimeDatabaseStore) SaveSignalEvent(ctx context.Context, event model
 }
 
 func (s *RealtimeDatabaseStore) SaveMarketSnapshot(ctx context.Context, snapshot model.MarketSnapshot) error {
-	return s.client.NewRef(collectionPath(model.CollectionMarketSnapshots, snapshot.ID)).Set(ctx, snapshot)
+	return s.client.NewRef(nestedCollectionPath(
+		model.CollectionMarketSnapshots,
+		snapshot.SessionID,
+		marketDayKeyForTime(snapshot.Timestamp),
+		snapshot.ID,
+	)).Set(ctx, snapshot)
 }
 
 func (s *RealtimeDatabaseStore) ListMarketSnapshots(ctx context.Context, sessionID string) ([]model.MarketSnapshot, error) {
-	items, err := loadCollection[model.MarketSnapshot](ctx, s.client, model.CollectionMarketSnapshots)
-	if err != nil {
+	var raw map[string]map[string]model.MarketSnapshot
+	if err := s.client.NewRef(collectionPath(model.CollectionMarketSnapshots, sessionID)).Get(ctx, &raw); err != nil {
 		return nil, err
 	}
-	filtered := filterBySession(items, sessionID)
-	sort.Slice(filtered, func(i, j int) bool {
-		if !filtered[i].Timestamp.Equal(filtered[j].Timestamp) {
-			return filtered[i].Timestamp.Before(filtered[j].Timestamp)
+	items := make([]model.MarketSnapshot, 0)
+	for _, dayItems := range raw {
+		for _, item := range dayItems {
+			items = append(items, item)
 		}
-		if filtered[i].Symbol != filtered[j].Symbol {
-			return filtered[i].Symbol < filtered[j].Symbol
+	}
+	if len(items) == 0 {
+		return []model.MarketSnapshot{}, nil
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].Timestamp.Equal(items[j].Timestamp) {
+			return items[i].Timestamp.Before(items[j].Timestamp)
 		}
-		return filtered[i].ID < filtered[j].ID
+		if items[i].Symbol != items[j].Symbol {
+			return items[i].Symbol < items[j].Symbol
+		}
+		return items[i].ID < items[j].ID
 	})
-	return filtered, nil
+	return items, nil
 }
 
 func (s *RealtimeDatabaseStore) ListDecisions(ctx context.Context, sessionID string) ([]model.DecisionRecord, error) {
-	items, err := loadCollection[model.DecisionRecord](ctx, s.client, model.CollectionDecisionEvents)
+	items, err := loadSessionCollection[model.DecisionRecord](ctx, s.client, model.CollectionDecisionEvents, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	filtered := filterBySession(items, sessionID)
-	sort.Slice(filtered, func(i, j int) bool {
-		if !filtered[i].CreatedAt.Equal(filtered[j].CreatedAt) {
-			return filtered[i].CreatedAt.Before(filtered[j].CreatedAt)
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].CreatedAt.Before(items[j].CreatedAt)
 		}
-		return filtered[i].ID < filtered[j].ID
+		return items[i].ID < items[j].ID
 	})
-	return filtered, nil
+	return items, nil
 }
 
 func (s *RealtimeDatabaseStore) GetSession(ctx context.Context, sessionID string) (model.SessionSummary, error) {
@@ -96,21 +117,20 @@ func (s *RealtimeDatabaseStore) UpsertSession(ctx context.Context, session model
 }
 
 func (s *RealtimeDatabaseStore) ListConfigVersions(ctx context.Context, sessionID string) ([]model.ConfigVersion, error) {
-	items, err := loadCollection[model.ConfigVersion](ctx, s.client, model.CollectionConfigVersions)
+	items, err := loadSessionCollection[model.ConfigVersion](ctx, s.client, model.CollectionConfigVersions, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	filtered := filterBySession(items, sessionID)
-	sort.Slice(filtered, func(i, j int) bool {
-		if !filtered[i].UpdatedAt.Equal(filtered[j].UpdatedAt) {
-			return filtered[i].UpdatedAt.Before(filtered[j].UpdatedAt)
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].UpdatedAt.Before(items[j].UpdatedAt)
 		}
-		if filtered[i].Version != filtered[j].Version {
-			return filtered[i].Version < filtered[j].Version
+		if items[i].Version != items[j].Version {
+			return items[i].Version < items[j].Version
 		}
-		return filtered[i].ID < filtered[j].ID
+		return items[i].ID < items[j].ID
 	})
-	return filtered, nil
+	return items, nil
 }
 
 func (s *RealtimeDatabaseStore) SaveWindow(ctx context.Context, window model.TradeWindow) error {
@@ -119,18 +139,17 @@ func (s *RealtimeDatabaseStore) SaveWindow(ctx context.Context, window model.Tra
 }
 
 func (s *RealtimeDatabaseStore) ListWindows(ctx context.Context, sessionID string) ([]model.TradeWindow, error) {
-	items, err := loadCollection[model.TradeWindow](ctx, s.client, model.CollectionTradeWindows)
+	items, err := loadSessionCollection[model.TradeWindow](ctx, s.client, model.CollectionTradeWindows, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	filtered := filterBySession(items, sessionID)
-	sort.Slice(filtered, func(i, j int) bool {
-		if !filtered[i].OpenedAt.Equal(filtered[j].OpenedAt) {
-			return filtered[i].OpenedAt.Before(filtered[j].OpenedAt)
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].OpenedAt.Equal(items[j].OpenedAt) {
+			return items[i].OpenedAt.Before(items[j].OpenedAt)
 		}
-		return filtered[i].ID < filtered[j].ID
+		return items[i].ID < items[j].ID
 	})
-	return filtered, nil
+	return items, nil
 }
 
 func (s *RealtimeDatabaseStore) SaveWindowSnapshot(ctx context.Context, snapshot model.WindowSnapshot) error {
@@ -142,39 +161,37 @@ func (s *RealtimeDatabaseStore) SaveWindowOptimization(ctx context.Context, opti
 }
 
 func (s *RealtimeDatabaseStore) ListWindowSnapshots(ctx context.Context, sessionID string) ([]model.WindowSnapshot, error) {
-	items, err := loadCollection[model.WindowSnapshot](ctx, s.client, model.CollectionWindowSnapshots)
+	items, err := loadSessionCollection[model.WindowSnapshot](ctx, s.client, model.CollectionWindowSnapshots, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	filtered := filterBySession(items, sessionID)
-	sort.Slice(filtered, func(i, j int) bool {
-		if !filtered[i].CapturedAt.Equal(filtered[j].CapturedAt) {
-			return filtered[i].CapturedAt.Before(filtered[j].CapturedAt)
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].CapturedAt.Equal(items[j].CapturedAt) {
+			return items[i].CapturedAt.Before(items[j].CapturedAt)
 		}
-		if filtered[i].Symbol != filtered[j].Symbol {
-			return filtered[i].Symbol < filtered[j].Symbol
+		if items[i].Symbol != items[j].Symbol {
+			return items[i].Symbol < items[j].Symbol
 		}
-		return filtered[i].ID < filtered[j].ID
+		return items[i].ID < items[j].ID
 	})
-	return filtered, nil
+	return items, nil
 }
 
 func (s *RealtimeDatabaseStore) ListWindowOptimizations(ctx context.Context, sessionID string) ([]model.WindowOptimization, error) {
-	items, err := loadCollection[model.WindowOptimization](ctx, s.client, model.CollectionWindowOptimizations)
+	items, err := loadSessionCollection[model.WindowOptimization](ctx, s.client, model.CollectionWindowOptimizations, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	filtered := filterBySession(items, sessionID)
-	sort.Slice(filtered, func(i, j int) bool {
-		if !filtered[i].CreatedAt.Equal(filtered[j].CreatedAt) {
-			return filtered[i].CreatedAt.Before(filtered[j].CreatedAt)
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].CreatedAt.Before(items[j].CreatedAt)
 		}
-		if filtered[i].Symbol != filtered[j].Symbol {
-			return filtered[i].Symbol < filtered[j].Symbol
+		if items[i].Symbol != items[j].Symbol {
+			return items[i].Symbol < items[j].Symbol
 		}
-		return filtered[i].ID < filtered[j].ID
+		return items[i].ID < items[j].ID
 	})
-	return filtered, nil
+	return items, nil
 }
 
 func (s *RealtimeDatabaseStore) UpsertWindowSummary(ctx context.Context, summary model.WindowAnalyticsSummary) error {
@@ -200,44 +217,24 @@ func collectionPath(collectionName, id string) string {
 	return collectionName + "/" + id
 }
 
-type sessionScoped interface {
-	GetSessionID() string
-}
-
-func filterBySession[T any](items []T, sessionID string) []T {
-	filtered := make([]T, 0, len(items))
-	for _, item := range items {
-		if sessionScopedItemSessionID(item) == sessionID {
-			filtered = append(filtered, item)
+func nestedCollectionPath(parts ...string) string {
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.Trim(part, "/"); trimmed != "" {
+			filtered = append(filtered, trimmed)
 		}
 	}
-	return filtered
+	return strings.Join(filtered, "/")
 }
 
-func sessionScopedItemSessionID[T any](item T) string {
-	switch value := any(item).(type) {
-	case model.DecisionRecord:
-		return value.SessionID
-	case model.SignalEvent:
-		return value.SessionID
-	case model.MarketSnapshot:
-		return value.SessionID
-	case model.ConfigVersion:
-		return value.SessionID
-	case model.TradeWindow:
-		return value.SessionID
-	case model.WindowSnapshot:
-		return value.SessionID
-	case model.WindowOptimization:
-		return value.SessionID
-	default:
-		return ""
-	}
+func marketDayKeyForTime(timestamp time.Time) string {
+	return timestamp.In(newYorkLocation).Format("2006-01-02")
 }
 
-func loadCollection[T any](ctx context.Context, client *firebase_db.Client, collectionName string) ([]T, error) {
+func loadSessionCollection[T any](ctx context.Context, client *firebase_db.Client, collectionName string, sessionID string) ([]T, error) {
+	query := client.NewRef(collectionName).OrderByChild("session_id").EqualTo(sessionID)
 	var raw map[string]T
-	if err := client.NewRef(collectionName).Get(ctx, &raw); err != nil {
+	if err := query.Get(ctx, &raw); err != nil {
 		return nil, err
 	}
 	if len(raw) == 0 {
