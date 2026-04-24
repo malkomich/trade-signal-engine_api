@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	_ "time/tzdata"
+
 	firebase "firebase.google.com/go/v4"
 	firebase_db "firebase.google.com/go/v4/db"
 
