@@ -214,7 +214,7 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 				return
 			}
 			if payload.ID == "" {
-				// Retried snapshots keep the same ID so both Firestore and memory backends upsert the record.
+				// Retried snapshots keep the same ID so both realtime and memory backends upsert the record.
 				payload.ID = payload.SessionID + ":" + payload.Symbol + ":" + payload.Timestamp.UTC().Format(time.RFC3339Nano)
 			}
 			if payload.EventType == "" {
