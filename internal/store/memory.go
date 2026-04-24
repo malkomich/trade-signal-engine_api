@@ -14,6 +14,7 @@ type MemoryStore struct {
 	signals   map[string][]model.SignalEvent
 	market    map[string][]model.MarketSnapshot
 	sessions  map[string]model.SessionSummary
+	configs   map[string][]model.ConfigVersion
 	windows   map[string][]model.TradeWindow
 	snapshots map[string][]model.WindowSnapshot
 	summaries map[string]model.WindowAnalyticsSummary
@@ -25,6 +26,7 @@ func NewMemoryStore() *MemoryStore {
 		signals:   make(map[string][]model.SignalEvent),
 		market:    make(map[string][]model.MarketSnapshot),
 		sessions:  make(map[string]model.SessionSummary),
+		configs:   make(map[string][]model.ConfigVersion),
 		windows:   make(map[string][]model.TradeWindow),
 		snapshots: make(map[string][]model.WindowSnapshot),
 		summaries: make(map[string]model.WindowAnalyticsSummary),
@@ -99,6 +101,22 @@ func (s *MemoryStore) UpsertSession(_ context.Context, session model.SessionSumm
 	defer s.mu.Unlock()
 	s.sessions[session.ID] = session
 	return nil
+}
+
+func (s *MemoryStore) ListConfigVersions(_ context.Context, sessionID string) ([]model.ConfigVersion, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := append([]model.ConfigVersion(nil), s.configs[sessionID]...)
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].UpdatedAt.Before(items[j].UpdatedAt)
+		}
+		if items[i].Version != items[j].Version {
+			return items[i].Version < items[j].Version
+		}
+		return items[i].ID < items[j].ID
+	})
+	return items, nil
 }
 
 func (s *MemoryStore) SaveWindow(_ context.Context, window model.TradeWindow) error {

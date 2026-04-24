@@ -13,6 +13,28 @@ type DecisionRequest struct {
 	RequestedBy string  `json:"requested_by,omitempty"`
 }
 
+type ConfigField struct {
+	Key         string   `json:"key" firestore:"key"`
+	Label       string   `json:"label" firestore:"label"`
+	Value       any      `json:"value" firestore:"value"`
+	Description string   `json:"description" firestore:"description"`
+	Group       string   `json:"group" firestore:"group"`
+	InputType   string   `json:"inputType" firestore:"inputType"`
+	Step        *float64 `json:"step,omitempty" firestore:"step,omitempty"`
+	Placeholder string   `json:"placeholder,omitempty" firestore:"placeholder,omitempty"`
+}
+
+type ConfigVersion struct {
+	ID        string        `json:"id" firestore:"id"`
+	SessionID string        `json:"session_id" firestore:"session_id"`
+	Version   string        `json:"version" firestore:"version"`
+	Status    string        `json:"status" firestore:"status"`
+	Summary   string        `json:"summary" firestore:"summary"`
+	Fields    []ConfigField `json:"fields" firestore:"fields"`
+	CreatedAt time.Time     `json:"created_at" firestore:"created_at"`
+	UpdatedAt time.Time     `json:"updated_at" firestore:"updated_at"`
+}
+
 type DecisionRecord struct {
 	ID         string    `json:"id" firestore:"id"`
 	SessionID  string    `json:"session_id" firestore:"session_id"`
@@ -81,6 +103,7 @@ type SessionSummary struct {
 	OpenWindows    int       `json:"open_windows" firestore:"open_windows"`
 	LastDecisionAt time.Time `json:"last_decision_at" firestore:"last_decision_at"`
 	Symbols        []string  `json:"symbols" firestore:"symbols"`
+	ConfigVersion  string    `json:"config_version" firestore:"config_version"`
 	UpdatedAt      time.Time `json:"updated_at" firestore:"updated_at"`
 }
 

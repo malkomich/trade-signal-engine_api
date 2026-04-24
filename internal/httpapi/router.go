@@ -42,6 +42,7 @@ func (r *Router) root(w http.ResponseWriter, _ *http.Request) {
 			"/v1/decisions",
 			"/v1/sessions/{id}",
 			"/v1/sessions/{id}/windows",
+			"/v1/sessions/{id}/config",
 			"/v1/sessions/{id}/market-snapshots",
 			"/v1/sessions/{id}/analytics",
 			"/v1/sessions/{id}/analytics/export",
@@ -139,6 +140,30 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, windows)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "config" && req.Method == http.MethodGet {
+		session, err := r.store.GetSession(req.Context(), sessionID)
+		if err == store.ErrNotFound {
+			writeError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load session")
+			return
+		}
+		versions, err := r.store.ListConfigVersions(req.Context(), sessionID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load config versions")
+			return
+		}
+		selected := selectSessionConfigVersion(session.ConfigVersion, versions)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"session_id":             sessionID,
+			"session_config_version": session.ConfigVersion,
+			"selected_version":       selected,
+			"versions":               versions,
+		})
 		return
 	}
 	if len(parts) == 2 && parts[1] == "market-snapshots" {
@@ -396,6 +421,25 @@ func appendUniqueSymbol(symbols []string, symbol string) []string {
 		}
 	}
 	return append(symbols, symbol)
+}
+
+func selectSessionConfigVersion(sessionVersion string, versions []model.ConfigVersion) *model.ConfigVersion {
+	if len(versions) == 0 {
+		return nil
+	}
+	if sessionVersion != "" {
+		for index := range versions {
+			if versions[index].Version == sessionVersion || versions[index].ID == sessionVersion {
+				return &versions[index]
+			}
+		}
+	}
+	for index := range versions {
+		if versions[index].Status == "active" {
+			return &versions[index]
+		}
+	}
+	return &versions[len(versions)-1]
 }
 
 func (r *Router) closeOpenWindow(ctx context.Context, windows []model.TradeWindow, sessionID string, symbol string, record model.DecisionRecord) (*model.TradeWindow, []model.TradeWindow, error) {

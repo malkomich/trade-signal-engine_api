@@ -1,7 +1,8 @@
-name: trading-signal-engine-server
+name: trade-signal-engine-server
 
 services:
   api:
+    container_name: trade-signal-engine-server-api
     build:
       context: .
       dockerfile: Dockerfile
