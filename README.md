@@ -6,7 +6,7 @@ HTTP API for session decisions, windows, live signal events, and operational sum
 
 - Go 1.24+
 - In-memory store for local development
-- Firestore store for production
+- Realtime Database store for production
 
 ## Run
 
@@ -29,7 +29,7 @@ API_PORT=18080
 ```
 
 The compose file is production-oriented for the Raspberry Pi, so it defaults to `production`
-runtime settings and expects Firestore credentials to be mounted explicitly.
+runtime settings and expects Firebase credentials to be mounted explicitly.
 
 The compose file uses the project name `trade-signal-engine-server`, which keeps the API
 container grouped with the edge worker in Dozzle on the Raspberry Pi.
@@ -54,8 +54,9 @@ make build
 
 - `HTTP_ADDR`: bind address, default `:8080`
 - `ENVIRONMENT`: runtime environment label, default `local`
-- `FIREBASE_PROJECT_ID`: Firebase project ID for Firestore
-- `STORE_BACKEND`: `memory` or `firestore`
+- `FIREBASE_PROJECT_ID`: Firebase project ID for the realtime backend
+- `FIREBASE_DATABASE_URL`: Realtime Database URL for production. Set this when the database is not using the default `https://<project-id>-default-rtdb.firebaseio.com/` host.
+- `STORE_BACKEND`: `memory` or `rtdb`
 - `NOTIFICATION_BACKEND`: `noop`, `collapse`, or `fcm`
 - `FCM_TOPIC`: topic name used when `NOTIFICATION_BACKEND=fcm`, default `trade-signal-engine`
 
@@ -90,7 +91,7 @@ These repository variables are also useful for tooling and local automation:
 - `GOOGLE_CLOUD_PROJECT=trade-signal-engine`
 - `GCP_PROJECT_ID=trade-signal-engine`
 
-The API also writes live signal rows to Firestore in `signal_events`, which is what the
+The API also writes live signal rows to the realtime backend in `signal_events`, which is what the
 Firebase-hosted admin dashboard reads for real-time triage.
 The public proxy points `https://tradesignalengine.backend.synapsesea.com/api` to this API
 container through the local port published by Compose.

@@ -31,13 +31,18 @@ type Store interface {
 }
 
 func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (Store, error) {
-	if cfg.StoreBackend == "firestore" {
-		st, err := NewFirestoreStore(ctx, cfg.ProjectID)
+	switch cfg.StoreBackend {
+	case "memory":
+		return NewMemoryStore(), nil
+	case "rtdb":
+		st, err := NewRealtimeDatabaseStore(ctx, cfg.ProjectID, cfg.DatabaseURL)
 		if err == nil {
-			logger.Info("using firestore store", "project_id", cfg.ProjectID)
+			logger.Info("using realtime database store", "project_id", cfg.ProjectID, "database_url", cfg.DatabaseURL)
 			return st, nil
 		}
-		logger.Warn("falling back to memory store", "error", err)
+		return nil, err
+	default:
+		logger.Warn("unknown store backend requested, using memory store", "store_backend", cfg.StoreBackend)
+		return NewMemoryStore(), nil
 	}
-	return NewMemoryStore(), nil
 }
