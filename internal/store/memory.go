@@ -9,27 +9,29 @@ import (
 )
 
 type MemoryStore struct {
-	mu        sync.RWMutex
-	decisions map[string][]model.DecisionRecord
-	signals   map[string][]model.SignalEvent
-	market    map[string][]model.MarketSnapshot
-	sessions  map[string]model.SessionSummary
-	configs   map[string][]model.ConfigVersion
-	windows   map[string][]model.TradeWindow
-	snapshots map[string][]model.WindowSnapshot
-	summaries map[string]model.WindowAnalyticsSummary
+	mu            sync.RWMutex
+	decisions     map[string][]model.DecisionRecord
+	signals       map[string][]model.SignalEvent
+	market        map[string][]model.MarketSnapshot
+	sessions      map[string]model.SessionSummary
+	configs       map[string][]model.ConfigVersion
+	windows       map[string][]model.TradeWindow
+	snapshots     map[string][]model.WindowSnapshot
+	optimizations map[string][]model.WindowOptimization
+	summaries     map[string]model.WindowAnalyticsSummary
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		decisions: make(map[string][]model.DecisionRecord),
-		signals:   make(map[string][]model.SignalEvent),
-		market:    make(map[string][]model.MarketSnapshot),
-		sessions:  make(map[string]model.SessionSummary),
-		configs:   make(map[string][]model.ConfigVersion),
-		windows:   make(map[string][]model.TradeWindow),
-		snapshots: make(map[string][]model.WindowSnapshot),
-		summaries: make(map[string]model.WindowAnalyticsSummary),
+		decisions:     make(map[string][]model.DecisionRecord),
+		signals:       make(map[string][]model.SignalEvent),
+		market:        make(map[string][]model.MarketSnapshot),
+		sessions:      make(map[string]model.SessionSummary),
+		configs:       make(map[string][]model.ConfigVersion),
+		windows:       make(map[string][]model.TradeWindow),
+		snapshots:     make(map[string][]model.WindowSnapshot),
+		optimizations: make(map[string][]model.WindowOptimization),
+		summaries:     make(map[string]model.WindowAnalyticsSummary),
 	}
 }
 
@@ -152,6 +154,37 @@ func (s *MemoryStore) ListWindowSnapshots(_ context.Context, sessionID string) (
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return append([]model.WindowSnapshot(nil), s.snapshots[sessionID]...), nil
+}
+
+func (s *MemoryStore) SaveWindowOptimization(_ context.Context, optimization model.WindowOptimization) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := s.optimizations[optimization.SessionID]
+	for index, existing := range items {
+		if existing.ID == optimization.ID {
+			items[index] = optimization
+			s.optimizations[optimization.SessionID] = items
+			return nil
+		}
+	}
+	s.optimizations[optimization.SessionID] = append(items, optimization)
+	return nil
+}
+
+func (s *MemoryStore) ListWindowOptimizations(_ context.Context, sessionID string) ([]model.WindowOptimization, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := append([]model.WindowOptimization(nil), s.optimizations[sessionID]...)
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].CreatedAt.Before(items[j].CreatedAt)
+		}
+		if items[i].Symbol != items[j].Symbol {
+			return items[i].Symbol < items[j].Symbol
+		}
+		return items[i].ID < items[j].ID
+	})
+	return items, nil
 }
 
 func (s *MemoryStore) UpsertWindowSummary(_ context.Context, summary model.WindowAnalyticsSummary) error {

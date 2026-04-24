@@ -167,6 +167,11 @@ func (s *FirestoreStore) SaveWindowSnapshot(ctx context.Context, snapshot model.
 	return err
 }
 
+func (s *FirestoreStore) SaveWindowOptimization(ctx context.Context, optimization model.WindowOptimization) error {
+	_, err := s.client.Collection(model.CollectionWindowOptimizations).Doc(optimization.ID).Set(ctx, optimization)
+	return err
+}
+
 func (s *FirestoreStore) ListWindowSnapshots(ctx context.Context, sessionID string) ([]model.WindowSnapshot, error) {
 	docs, err := s.client.Collection(model.CollectionWindowSnapshots).Where("session_id", "==", sessionID).Documents(ctx).GetAll()
 	if err != nil {
@@ -189,6 +194,28 @@ func (s *FirestoreStore) ListWindowSnapshots(ctx context.Context, sessionID stri
 		}
 		return items[i].ID < items[j].ID
 	})
+	return items, nil
+}
+
+func (s *FirestoreStore) ListWindowOptimizations(ctx context.Context, sessionID string) ([]model.WindowOptimization, error) {
+	docs, err := s.client.Collection(model.CollectionWindowOptimizations).
+		Where("session_id", "==", sessionID).
+		OrderBy("created_at", firestore.Asc).
+		OrderBy("symbol", firestore.Asc).
+		OrderBy("id", firestore.Asc).
+		Documents(ctx).
+		GetAll()
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.WindowOptimization, 0, len(docs))
+	for _, doc := range docs {
+		var item model.WindowOptimization
+		if err := doc.DataTo(&item); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
 	return items, nil
 }
 

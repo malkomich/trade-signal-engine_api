@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -12,6 +13,11 @@ import (
 	"trade-signal-engine-api/internal/model"
 	"trade-signal-engine-api/internal/notify"
 	"trade-signal-engine-api/internal/store"
+)
+
+const (
+	defaultOptimizerLearningRate = 0.12
+	defaultOptimizerBiasCap      = 0.08
 )
 
 type Router struct {
@@ -158,11 +164,21 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		selected := selectSessionConfigVersion(session.ConfigVersion, versions)
+		optimizationSummary := session.OptimizationSummary
+		if optimizationSummary == nil {
+			optimizations, err := r.store.ListWindowOptimizations(req.Context(), sessionID)
+			if err != nil {
+				slog.Warn("failed to load optimization history", "session", sessionID, "error", err)
+			} else {
+				optimizationSummary = buildWindowOptimizationSummary(sessionID, optimizations)
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"session_id":             sessionID,
 			"session_config_version": session.ConfigVersion,
 			"selected_version":       selected,
 			"versions":               versions,
+			"optimization_summary":   optimizationSummary,
 		})
 		return
 	}
@@ -314,8 +330,12 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 	switch action {
 	case "accept":
 		record.EventType = model.EventTypeDecisionAccepted
+		record.WindowID = sessionID + ":" + payload.Symbol + ":" + record.ID
 	case "exit":
 		record.EventType = model.EventTypeDecisionExited
+		if window := findOpenWindow(windows, payload.Symbol); window != nil {
+			record.WindowID = window.ID
+		}
 	case "reject":
 		record.EventType = model.EventTypeDecisionRejected
 	case "ack":
@@ -358,6 +378,7 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 			writeError(w, http.StatusInternalServerError, "failed to save trade window")
 			return
 		}
+		record.WindowID = window.ID
 		windows = append(windows, window)
 		if err := r.persistAnalytics(req.Context(), record, &window); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to save analytics snapshot")
@@ -373,6 +394,7 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 			writeError(w, http.StatusInternalServerError, "failed to close trade window")
 			return
 		}
+		record.WindowID = window.ID
 		windows = updatedWindows
 		if err := r.persistAnalytics(req.Context(), record, window); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to save analytics snapshot")
@@ -440,6 +462,15 @@ func selectSessionConfigVersion(sessionVersion string, versions []model.ConfigVe
 		}
 	}
 	return &versions[len(versions)-1]
+}
+
+func findOpenWindow(windows []model.TradeWindow, symbol string) *model.TradeWindow {
+	for index := range windows {
+		if windows[index].Symbol == symbol && windows[index].Status == "open" {
+			return &windows[index]
+		}
+	}
+	return nil
 }
 
 func (r *Router) closeOpenWindow(ctx context.Context, windows []model.TradeWindow, sessionID string, symbol string, record model.DecisionRecord) (*model.TradeWindow, []model.TradeWindow, error) {
@@ -527,20 +558,25 @@ func (r *Router) publishNotification(ctx context.Context, decision model.Decisio
 	if r.notifier == nil {
 		return
 	}
-	_ = r.notifier.Publish(ctx, notify.Event{
+	event := notify.Event{
 		SessionID: decision.SessionID,
 		Symbol:    decision.Symbol,
 		Type:      decision.EventType,
 		Title:     strings.ToUpper(decision.Action) + " signal",
 		Body:      decision.Reason,
 		CreatedAt: decision.CreatedAt,
-	})
+	}
+	if decision.WindowID != "" {
+		event.Key = decision.WindowID
+	}
+	_ = r.notifier.Publish(ctx, event)
 }
 
 func (r *Router) persistSignalEvent(ctx context.Context, decision model.DecisionRecord) error {
 	event := model.SignalEvent{
 		ID:         decision.ID,
 		SessionID:  decision.SessionID,
+		WindowID:   decision.WindowID,
 		Symbol:     decision.Symbol,
 		State:      signalStateForDecision(decision),
 		EntryScore: decision.EntryScore,
@@ -604,6 +640,91 @@ func signalReasonsForDecision(decision model.DecisionRecord) []string {
 		return nil
 	}
 	return reasons
+}
+
+func buildWindowOptimizationSummary(sessionID string, optimizations []model.WindowOptimization) *model.WindowOptimizationSummary {
+	summary := model.WindowOptimizationSummary{
+		SessionID:             sessionID,
+		EntryProfile:          make(map[string]float64),
+		ExitProfile:           make(map[string]float64),
+		OptimizerLearningRate: defaultOptimizerLearningRate,
+		OptimizerBiasCap:      defaultOptimizerBiasCap,
+	}
+	if len(optimizations) == 0 {
+		return &summary
+	}
+
+	entryTotals := make(map[string]float64)
+	entryCounts := make(map[string]int)
+	exitTotals := make(map[string]float64)
+	exitCounts := make(map[string]int)
+	symbols := make(map[string]struct{})
+	var totalChange float64
+	var totalEntry float64
+	var totalExit float64
+	for _, optimization := range optimizations {
+		summary.SampleCount++
+		totalChange += optimization.ChangePct
+		totalEntry += optimization.EntryScore
+		totalExit += optimization.ExitScore
+		summary.UpdatedAt = optimization.UpdatedAt
+		if optimization.Symbol != "" {
+			symbols[optimization.Symbol] = struct{}{}
+		}
+		accumulateOptimizationProfile(entryTotals, entryCounts, optimization.EntrySnapshot)
+		accumulateOptimizationProfile(exitTotals, exitCounts, optimization.ExitSnapshot)
+	}
+	summary.AverageChangePct = totalChange / float64(summary.SampleCount)
+	summary.AverageEntryScore = totalEntry / float64(summary.SampleCount)
+	summary.AverageExitScore = totalExit / float64(summary.SampleCount)
+	summary.EntryProfile = finalizeOptimizationProfile(entryTotals, entryCounts)
+	summary.ExitProfile = finalizeOptimizationProfile(exitTotals, exitCounts)
+	for symbol := range symbols {
+		summary.Symbols = append(summary.Symbols, symbol)
+	}
+	sort.Strings(summary.Symbols)
+	return &summary
+}
+
+func accumulateOptimizationProfile(totals map[string]float64, counts map[string]int, snapshot model.MarketSnapshot) {
+	profile := optimizationSnapshotProfile(snapshot)
+	for key, value := range profile {
+		totals[key] += value
+		counts[key]++
+	}
+}
+
+func finalizeOptimizationProfile(totals map[string]float64, counts map[string]int) map[string]float64 {
+	profile := make(map[string]float64, len(totals))
+	for key, total := range totals {
+		if count := counts[key]; count > 0 {
+			profile[key] = total / float64(count)
+		}
+	}
+	return profile
+}
+
+func optimizationSnapshotProfile(snapshot model.MarketSnapshot) map[string]float64 {
+	return map[string]float64{
+		"close":          snapshot.Close,
+		"sma_fast":       snapshot.SMAFast,
+		"sma_slow":       snapshot.SMASlow,
+		"ema_fast":       snapshot.EMAFast,
+		"ema_slow":       snapshot.EMASlow,
+		"vwap":           snapshot.VWAP,
+		"rsi":            snapshot.RSI,
+		"atr":            snapshot.ATR,
+		"plus_di":        snapshot.PlusDI,
+		"minus_di":       snapshot.MinusDI,
+		"adx":            snapshot.ADX,
+		"macd":           snapshot.MACD,
+		"macd_signal":    snapshot.MACDSignal,
+		"macd_histogram": snapshot.MACDHistogram,
+		"stochastic_k":   snapshot.StochasticK,
+		"stochastic_d":   snapshot.StochasticD,
+		"entry_score":    snapshot.EntryScore,
+		"exit_score":     snapshot.ExitScore,
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
