@@ -434,7 +434,7 @@ func selectSessionConfigVersion(sessionVersion string, versions []model.ConfigVe
 			}
 		}
 	}
-	for index := range versions {
+	for index := len(versions) - 1; index >= 0; index-- {
 		if versions[index].Status == "active" {
 			return &versions[index]
 		}

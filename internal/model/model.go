@@ -19,7 +19,7 @@ type ConfigField struct {
 	Value       any      `json:"value" firestore:"value"`
 	Description string   `json:"description" firestore:"description"`
 	Group       string   `json:"group" firestore:"group"`
-	InputType   string   `json:"inputType" firestore:"inputType"`
+	InputType   string   `json:"input_type" firestore:"inputType"`
 	Step        *float64 `json:"step,omitempty" firestore:"step,omitempty"`
 	Placeholder string   `json:"placeholder,omitempty" firestore:"placeholder,omitempty"`
 }

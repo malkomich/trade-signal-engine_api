@@ -98,6 +98,45 @@ func TestSessionConfigEndpointReturnsSelectedVersion(t *testing.T) {
 	}
 }
 
+func TestSelectSessionConfigVersionPrefersMostRecentActiveVersion(t *testing.T) {
+	versions := []model.ConfigVersion{
+		{ID: "session-1:v18", Version: "v18", Status: "active", UpdatedAt: time.Date(2026, 4, 20, 15, 45, 0, 0, time.UTC)},
+		{ID: "session-1:v19", Version: "v19", Status: "archived", UpdatedAt: time.Date(2026, 4, 21, 15, 45, 0, 0, time.UTC)},
+		{ID: "session-1:v20", Version: "v20", Status: "active", UpdatedAt: time.Date(2026, 4, 22, 15, 45, 0, 0, time.UTC)},
+	}
+
+	selected := selectSessionConfigVersion("", versions)
+	if selected == nil {
+		t.Fatalf("expected selected version, got nil")
+	}
+	if selected.Version != "v20" {
+		t.Fatalf("expected latest active version v20, got %q", selected.Version)
+	}
+}
+
+func TestSelectSessionConfigVersionFallsBackToLatestWhenNoActiveVersionExists(t *testing.T) {
+	versions := []model.ConfigVersion{
+		{ID: "session-1:v18", Version: "v18", Status: "archived", UpdatedAt: time.Date(2026, 4, 20, 15, 45, 0, 0, time.UTC)},
+		{ID: "session-1:v19", Version: "v19", Status: "candidate", UpdatedAt: time.Date(2026, 4, 21, 15, 45, 0, 0, time.UTC)},
+		{ID: "session-1:v20", Version: "v20", Status: "archived", UpdatedAt: time.Date(2026, 4, 22, 15, 45, 0, 0, time.UTC)},
+	}
+
+	selected := selectSessionConfigVersion("", versions)
+	if selected == nil {
+		t.Fatalf("expected selected version, got nil")
+	}
+	if selected.Version != "v20" {
+		t.Fatalf("expected latest version v20, got %q", selected.Version)
+	}
+}
+
+func TestSelectSessionConfigVersionReturnsNilForEmptyVersions(t *testing.T) {
+	selected := selectSessionConfigVersion("", nil)
+	if selected != nil {
+		t.Fatalf("expected nil selected version, got %#v", selected)
+	}
+}
+
 func TestUnknownPathReturnsNotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/missing", nil)
 	rr := httptest.NewRecorder()
