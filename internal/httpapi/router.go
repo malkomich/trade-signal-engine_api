@@ -15,6 +15,11 @@ import (
 	"trade-signal-engine-api/internal/store"
 )
 
+const (
+	defaultOptimizerLearningRate = 0.12
+	defaultOptimizerBiasCap      = 0.08
+)
+
 type Router struct {
 	store                  store.Store
 	notifier               notify.Publisher
@@ -158,18 +163,22 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to load config versions")
 			return
 		}
-		optimizations, err := r.store.ListWindowOptimizations(req.Context(), sessionID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to load optimization history")
-			return
-		}
 		selected := selectSessionConfigVersion(session.ConfigVersion, versions)
+		optimizationSummary := session.OptimizationSummary
+		if optimizationSummary.SessionID == "" && optimizationSummary.SampleCount == 0 {
+			optimizations, err := r.store.ListWindowOptimizations(req.Context(), sessionID)
+			if err != nil {
+				slog.Warn("failed to load optimization history", "session", sessionID, "error", err)
+			} else {
+				optimizationSummary = buildWindowOptimizationSummary(sessionID, optimizations)
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"session_id":             sessionID,
 			"session_config_version": session.ConfigVersion,
 			"selected_version":       selected,
 			"versions":               versions,
-			"optimization_summary":   buildWindowOptimizationSummary(sessionID, optimizations),
+			"optimization_summary":   optimizationSummary,
 		})
 		return
 	}
@@ -625,8 +634,8 @@ func buildWindowOptimizationSummary(sessionID string, optimizations []model.Wind
 		SessionID:             sessionID,
 		EntryProfile:          make(map[string]float64),
 		ExitProfile:           make(map[string]float64),
-		OptimizerLearningRate: 0.12,
-		OptimizerBiasCap:      0.08,
+		OptimizerLearningRate: defaultOptimizerLearningRate,
+		OptimizerBiasCap:      defaultOptimizerBiasCap,
 	}
 	if len(optimizations) == 0 {
 		return summary

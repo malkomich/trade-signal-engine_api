@@ -101,13 +101,14 @@ type MarketSnapshot struct {
 }
 
 type SessionSummary struct {
-	ID             string    `json:"id" firestore:"id"`
-	Status         string    `json:"status" firestore:"status"`
-	OpenWindows    int       `json:"open_windows" firestore:"open_windows"`
-	LastDecisionAt time.Time `json:"last_decision_at" firestore:"last_decision_at"`
-	Symbols        []string  `json:"symbols" firestore:"symbols"`
-	ConfigVersion  string    `json:"config_version" firestore:"config_version"`
-	UpdatedAt      time.Time `json:"updated_at" firestore:"updated_at"`
+	ID                  string                    `json:"id" firestore:"id"`
+	Status              string                    `json:"status" firestore:"status"`
+	OpenWindows         int                       `json:"open_windows" firestore:"open_windows"`
+	LastDecisionAt      time.Time                 `json:"last_decision_at" firestore:"last_decision_at"`
+	Symbols             []string                  `json:"symbols" firestore:"symbols"`
+	ConfigVersion       string                    `json:"config_version" firestore:"config_version"`
+	OptimizationSummary WindowOptimizationSummary `json:"optimization_summary,omitempty" firestore:"optimization_summary,omitempty"`
+	UpdatedAt           time.Time                 `json:"updated_at" firestore:"updated_at"`
 }
 
 type TradeWindow struct {

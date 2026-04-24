@@ -193,7 +193,13 @@ func (s *FirestoreStore) ListWindowSnapshots(ctx context.Context, sessionID stri
 }
 
 func (s *FirestoreStore) ListWindowOptimizations(ctx context.Context, sessionID string) ([]model.WindowOptimization, error) {
-	docs, err := s.client.Collection(model.CollectionWindowOptimizations).Where("session_id", "==", sessionID).Documents(ctx).GetAll()
+	docs, err := s.client.Collection(model.CollectionWindowOptimizations).
+		Where("session_id", "==", sessionID).
+		OrderBy("created_at", firestore.Asc).
+		OrderBy("symbol", firestore.Asc).
+		OrderBy("id", firestore.Asc).
+		Documents(ctx).
+		GetAll()
 	if err != nil {
 		return nil, err
 	}
@@ -205,15 +211,6 @@ func (s *FirestoreStore) ListWindowOptimizations(ctx context.Context, sessionID 
 		}
 		items = append(items, item)
 	}
-	sort.Slice(items, func(i, j int) bool {
-		if !items[i].CreatedAt.Equal(items[j].CreatedAt) {
-			return items[i].CreatedAt.Before(items[j].CreatedAt)
-		}
-		if items[i].Symbol != items[j].Symbol {
-			return items[i].Symbol < items[j].Symbol
-		}
-		return items[i].ID < items[j].ID
-	})
 	return items, nil
 }
 

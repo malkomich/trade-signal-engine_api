@@ -160,7 +160,15 @@ func (s *MemoryStore) ListWindowOptimizations(_ context.Context, sessionID strin
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	items := append([]model.WindowOptimization(nil), s.optimizations[sessionID]...)
-	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.Before(items[j].CreatedAt) })
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].CreatedAt.Before(items[j].CreatedAt)
+		}
+		if items[i].Symbol != items[j].Symbol {
+			return items[i].Symbol < items[j].Symbol
+		}
+		return items[i].ID < items[j].ID
+	})
 	return items, nil
 }
 
