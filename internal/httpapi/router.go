@@ -651,7 +651,7 @@ func buildWindowOptimizationSummary(sessionID string, optimizations []model.Wind
 		OptimizerBiasCap:      defaultOptimizerBiasCap,
 	}
 	if len(optimizations) == 0 {
-		return nil
+		return &summary
 	}
 
 	entryTotals := make(map[string]float64)

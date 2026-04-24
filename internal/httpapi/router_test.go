@@ -17,10 +17,18 @@ import (
 type configTestStore struct {
 	*store.MemoryStore
 	versions []model.ConfigVersion
+	session  model.SessionSummary
 }
 
 func (s *configTestStore) ListConfigVersions(_ context.Context, _ string) ([]model.ConfigVersion, error) {
 	return append([]model.ConfigVersion(nil), s.versions...), nil
+}
+
+func (s *configTestStore) GetSession(ctx context.Context, sessionID string) (model.SessionSummary, error) {
+	if s.session.ID != "" {
+		return s.session, nil
+	}
+	return s.MemoryStore.GetSession(ctx, sessionID)
 }
 
 func TestRootEndpointReturnsServiceMetadata(t *testing.T) {
@@ -95,6 +103,50 @@ func TestSessionConfigEndpointReturnsSelectedVersion(t *testing.T) {
 	}
 	if got := selected["version"]; got != "v19" {
 		t.Fatalf("expected selected version v19, got %v", got)
+	}
+}
+
+func TestSessionConfigEndpointIncludesDefaultOptimizationSummaryWithoutHistory(t *testing.T) {
+	st := &configTestStore{
+		MemoryStore: store.NewMemoryStore(),
+		session:     model.SessionSummary{ID: "session-1", ConfigVersion: "v19"},
+		versions: []model.ConfigVersion{
+			{
+				ID:        "session-1:v19",
+				SessionID: "session-1",
+				Version:   "v19",
+				Status:    "active",
+				Summary:   "current config",
+				UpdatedAt: time.Date(2026, 4, 21, 15, 45, 0, 0, time.UTC),
+			},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/config", nil)
+	rr := httptest.NewRecorder()
+
+	NewRouter(st, nil, slog.Default(), "IXIC").ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected valid json body: %v", err)
+	}
+	summary, ok := payload["optimization_summary"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected optimization_summary object, got %#v", payload["optimization_summary"])
+	}
+	if got := summary["optimizer_learning_rate"]; got != defaultOptimizerLearningRate {
+		t.Fatalf("expected default optimizer learning rate %v, got %v", defaultOptimizerLearningRate, got)
+	}
+	if got := summary["optimizer_bias_cap"]; got != defaultOptimizerBiasCap {
+		t.Fatalf("expected default optimizer bias cap %v, got %v", defaultOptimizerBiasCap, got)
+	}
+	if got := summary["sample_count"]; got != float64(0) {
+		t.Fatalf("expected zero sample count, got %v", got)
 	}
 }
 
