@@ -28,16 +28,12 @@ jobs:
       - name: Prepare credentials
         env:
           FIREBASE_SERVICE_ACCOUNT_TRADE_SIGNAL_ENGINE: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRADE_SIGNAL_ENGINE }}
-          GCP_CREDENTIALS_JSON: ${{ secrets.GCP_CREDENTIALS_JSON }}
         run: |
           set -e
           install_dir="$HOME/.trade-signal-engine-api"
           mkdir -p "$install_dir"
           credentials_file="$install_dir/firebase-service-account.json"
           credentials_json="$FIREBASE_SERVICE_ACCOUNT_TRADE_SIGNAL_ENGINE"
-          if [ -z "$credentials_json" ]; then
-            credentials_json="$GCP_CREDENTIALS_JSON"
-          fi
           if [ -z "$credentials_json" ]; then
             echo "no Firebase credentials secret was provided" >&2
             exit 1
