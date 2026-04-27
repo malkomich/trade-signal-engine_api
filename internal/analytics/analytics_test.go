@@ -26,6 +26,22 @@ func TestSnapshotFromDecision(t *testing.T) {
 	}
 }
 
+func TestSnapshotFromDecisionSanitizesRTDBUnsafeSegments(t *testing.T) {
+	snapshot := SnapshotFromDecision(
+		model.DecisionRecord{
+			ID:        "decision.1",
+			SessionID: "session.1",
+			Symbol:    "BRK.B",
+			EventType: "decision.accepted#$[/]",
+		},
+		&model.TradeWindow{ID: "window.1#$[/]"},
+	)
+
+	if snapshot.ID != "session_1:decision_1:decision_accepted_____:window_1_____" {
+		t.Fatalf("unexpected sanitized snapshot id: %s", snapshot.ID)
+	}
+}
+
 func TestBuildWindowSummary(t *testing.T) {
 	windows := []model.TradeWindow{
 		{Symbol: "AAPL", Status: "open", EntryScore: 1.5, ExitScore: 0.4},

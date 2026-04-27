@@ -53,6 +53,7 @@ type SignalEvent struct {
 	SessionID  string    `json:"session_id"`
 	WindowID   string    `json:"window_id,omitempty"`
 	Symbol     string    `json:"symbol"`
+	Action     string    `json:"action,omitempty"`
 	State      string    `json:"state"`
 	EntryScore float64   `json:"entry_score"`
 	ExitScore  float64   `json:"exit_score"`
