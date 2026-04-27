@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -81,7 +82,7 @@ func (r *Router) decisions(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		record := model.DecisionRecord{
-			ID:         time.Now().UTC().Format("20060102T150405.000000000Z"),
+			ID:         rtdbSafeTimestampKey(time.Now().UTC()),
 			SessionID:  payload.SessionID,
 			Symbol:     payload.Symbol,
 			Action:     payload.Action,
@@ -215,7 +216,7 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 			}
 			if payload.ID == "" {
 				// Retried snapshots keep the same ID so both realtime and memory backends upsert the record.
-				payload.ID = payload.SessionID + ":" + payload.Symbol + ":" + payload.Timestamp.UTC().Format(time.RFC3339Nano)
+				payload.ID = payload.SessionID + ":" + payload.Symbol + ":" + rtdbSafeTimestampKey(payload.Timestamp)
 			}
 			if payload.EventType == "" {
 				payload.EventType = "market.snapshot"
@@ -318,7 +319,7 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 	}
 
 	record := model.DecisionRecord{
-		ID:         time.Now().UTC().Format("20060102T150405.000000000Z"),
+		ID:         rtdbSafeTimestampKey(time.Now().UTC()),
 		SessionID:  sessionID,
 		Symbol:     payload.Symbol,
 		Action:     action,
@@ -443,6 +444,10 @@ func appendUniqueSymbol(symbols []string, symbol string) []string {
 		}
 	}
 	return append(symbols, symbol)
+}
+
+func rtdbSafeTimestampKey(value time.Time) string {
+	return strconv.FormatInt(value.UTC().UnixNano(), 10)
 }
 
 func selectSessionConfigVersion(sessionVersion string, versions []model.ConfigVersion) *model.ConfigVersion {

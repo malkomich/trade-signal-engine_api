@@ -214,6 +214,13 @@ func TestAcceptAndExitUpdateSessionStateFromLocalWindowState(t *testing.T) {
 	if acceptRR.Code != http.StatusCreated {
 		t.Fatalf("expected accept status 201, got %d", acceptRR.Code)
 	}
+	var accepted model.DecisionRecord
+	if err := json.Unmarshal(acceptRR.Body.Bytes(), &accepted); err != nil {
+		t.Fatalf("expected valid accept json body: %v", err)
+	}
+	if strings.Contains(accepted.ID, ".") {
+		t.Fatalf("expected RTDB-safe decision id, got %q", accepted.ID)
+	}
 
 	session, err := st.GetSession(nil, "session-1")
 	if err != nil {
@@ -294,6 +301,13 @@ func TestMarketSnapshotsRoundTrip(t *testing.T) {
 	router.ServeHTTP(postRR, postReq)
 	if postRR.Code != http.StatusCreated {
 		t.Fatalf("expected market snapshot status 201, got %d: %s", postRR.Code, postRR.Body.String())
+	}
+	var createdSnapshot model.MarketSnapshot
+	if err := json.Unmarshal(postRR.Body.Bytes(), &createdSnapshot); err != nil {
+		t.Fatalf("expected valid market snapshot json body: %v", err)
+	}
+	if strings.Contains(createdSnapshot.ID, ".") {
+		t.Fatalf("expected RTDB-safe market snapshot id, got %q", createdSnapshot.ID)
 	}
 
 	getReq := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/market-snapshots", nil)
