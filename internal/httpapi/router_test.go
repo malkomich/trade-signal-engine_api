@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,15 @@ import (
 	"trade-signal-engine-api/internal/model"
 	"trade-signal-engine-api/internal/store"
 )
+
+var rtdbSafeKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_:\-]+$`)
+
+func assertRTDBSafeKey(t *testing.T, label, key string) {
+	t.Helper()
+	if !rtdbSafeKeyPattern.MatchString(key) {
+		t.Fatalf("expected RTDB-safe %s, got %q", label, key)
+	}
+}
 
 type configTestStore struct {
 	*store.MemoryStore
@@ -214,6 +224,11 @@ func TestAcceptAndExitUpdateSessionStateFromLocalWindowState(t *testing.T) {
 	if acceptRR.Code != http.StatusCreated {
 		t.Fatalf("expected accept status 201, got %d", acceptRR.Code)
 	}
+	var accepted model.DecisionRecord
+	if err := json.Unmarshal(acceptRR.Body.Bytes(), &accepted); err != nil {
+		t.Fatalf("expected valid accept json body: %v", err)
+	}
+	assertRTDBSafeKey(t, "decision id", accepted.ID)
 
 	session, err := st.GetSession(nil, "session-1")
 	if err != nil {
@@ -260,6 +275,50 @@ func TestAcceptAndExitUpdateSessionStateFromLocalWindowState(t *testing.T) {
 	if len(windows) != 1 || windows[0].Status != "closed" || windows[0].ClosedAt == nil {
 		t.Fatalf("expected closed trade window, got %#v", windows)
 	}
+	assertRTDBSafeKey(t, "window id", windows[0].ID)
+}
+
+func TestAcceptAndMarketSnapshotSanitizeRTDBUnsafeSymbols(t *testing.T) {
+	st := store.NewMemoryStore()
+	if err := st.UpsertSession(nil, model.SessionSummary{ID: "session-1", Status: "live"}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	router := NewRouter(st, nil, slog.Default(), "IXIC")
+
+	acceptReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/accept", strings.NewReader(`{"symbol":"BRK.B","entry_score":0.82,"exit_score":0.17}`))
+	acceptRR := httptest.NewRecorder()
+	router.ServeHTTP(acceptRR, acceptReq)
+	if acceptRR.Code != http.StatusCreated {
+		t.Fatalf("expected accept status 201, got %d", acceptRR.Code)
+	}
+	var accepted model.DecisionRecord
+	if err := json.Unmarshal(acceptRR.Body.Bytes(), &accepted); err != nil {
+		t.Fatalf("expected valid accept json body: %v", err)
+	}
+	assertRTDBSafeKey(t, "decision id", accepted.ID)
+	assertRTDBSafeKey(t, "window id", accepted.WindowID)
+
+	windows, err := st.ListWindows(nil, "session-1")
+	if err != nil {
+		t.Fatalf("list windows: %v", err)
+	}
+	if len(windows) != 1 {
+		t.Fatalf("expected one stored window, got %#v", windows)
+	}
+	assertRTDBSafeKey(t, "persisted window id", windows[0].ID)
+
+	postReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"BRK.B","session_id":"session-1","timestamp":"2024-04-22T13:30:00Z","close":123.45,"event_type":"market.snapshot"}`))
+	postRR := httptest.NewRecorder()
+	router.ServeHTTP(postRR, postReq)
+	if postRR.Code != http.StatusCreated {
+		t.Fatalf("expected market snapshot status 201, got %d: %s", postRR.Code, postRR.Body.String())
+	}
+	var createdSnapshot model.MarketSnapshot
+	if err := json.Unmarshal(postRR.Body.Bytes(), &createdSnapshot); err != nil {
+		t.Fatalf("expected valid market snapshot json body: %v", err)
+	}
+	assertRTDBSafeKey(t, "market snapshot id", createdSnapshot.ID)
 }
 
 func TestExitWithoutOpenWindowReturnsNotFound(t *testing.T) {
@@ -289,12 +348,17 @@ func TestMarketSnapshotsRoundTrip(t *testing.T) {
 	st := store.NewMemoryStore()
 	router := NewRouter(st, nil, slog.Default(), "QQQ")
 
-	postReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"NVDA","session_id":"session-1","timestamp":"2024-04-22T13:30:00Z","close":123.45,"event_type":"market.snapshot"}`))
+	postReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"BRK.B","session_id":"session-1","timestamp":"2024-04-22T13:30:00Z","close":123.45,"event_type":"market.snapshot"}`))
 	postRR := httptest.NewRecorder()
 	router.ServeHTTP(postRR, postReq)
 	if postRR.Code != http.StatusCreated {
 		t.Fatalf("expected market snapshot status 201, got %d: %s", postRR.Code, postRR.Body.String())
 	}
+	var createdSnapshot model.MarketSnapshot
+	if err := json.Unmarshal(postRR.Body.Bytes(), &createdSnapshot); err != nil {
+		t.Fatalf("expected valid market snapshot json body: %v", err)
+	}
+	assertRTDBSafeKey(t, "market snapshot id", createdSnapshot.ID)
 
 	getReq := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/market-snapshots", nil)
 	getRR := httptest.NewRecorder()
@@ -307,12 +371,13 @@ func TestMarketSnapshotsRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(getRR.Body.Bytes(), &snapshots); err != nil {
 		t.Fatalf("expected valid json body: %v", err)
 	}
-	if len(snapshots) != 1 || snapshots[0].Symbol != "NVDA" {
+	if len(snapshots) != 1 || snapshots[0].Symbol != "BRK.B" {
 		t.Fatalf("expected persisted market snapshot, got %#v", snapshots)
 	}
 	if snapshots[0].BenchmarkSymbol != "QQQ" {
 		t.Fatalf("expected configured benchmark symbol, got %#v", snapshots[0].BenchmarkSymbol)
 	}
+	assertRTDBSafeKey(t, "persisted market snapshot id", snapshots[0].ID)
 	if snapshots[0].UpdatedAt.IsZero() || !snapshots[0].UpdatedAt.After(snapshots[0].Timestamp) {
 		t.Fatalf("expected updated_at to be set from wall clock, got %#v", snapshots[0].UpdatedAt)
 	}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"trade-signal-engine-api/internal/model"
+	"trade-signal-engine-api/internal/rtdb"
 )
 
 var indicatorOrder = []string{"SMA", "EMA", "VWAP", "RSI", "ATR", "DM", "MACD", "STOCH"}
@@ -15,9 +16,9 @@ func IndicatorOrder() []string {
 }
 
 func SnapshotFromDecision(decision model.DecisionRecord, window *model.TradeWindow) model.WindowSnapshot {
-	snapshotID := fmt.Sprintf("%s:%s:%s", decision.SessionID, decision.ID, decision.EventType)
+	snapshotID := fmt.Sprintf("%s:%s:%s", rtdb.SafeKeyPart(decision.SessionID), rtdb.SafeKeyPart(decision.ID), rtdb.SafeKeyPart(decision.EventType))
 	if window != nil && window.ID != "" {
-		snapshotID = fmt.Sprintf("%s:%s", snapshotID, window.ID)
+		snapshotID = fmt.Sprintf("%s:%s", snapshotID, rtdb.SafeKeyPart(window.ID))
 	}
 	snapshot := model.WindowSnapshot{
 		ID:             snapshotID,

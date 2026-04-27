@@ -12,6 +12,7 @@ import (
 	"trade-signal-engine-api/internal/analytics"
 	"trade-signal-engine-api/internal/model"
 	"trade-signal-engine-api/internal/notify"
+	"trade-signal-engine-api/internal/rtdb"
 	"trade-signal-engine-api/internal/store"
 )
 
@@ -80,8 +81,9 @@ func (r *Router) decisions(w http.ResponseWriter, req *http.Request) {
 			writeError(w, http.StatusBadRequest, "session_id, symbol and action are required")
 			return
 		}
+		createdAt := time.Now().UTC()
 		record := model.DecisionRecord{
-			ID:         time.Now().UTC().Format("20060102T150405.000000000Z"),
+			ID:         buildRTDBRecordID(payload.SessionID, payload.Symbol, payload.Action, createdAt),
 			SessionID:  payload.SessionID,
 			Symbol:     payload.Symbol,
 			Action:     payload.Action,
@@ -89,7 +91,7 @@ func (r *Router) decisions(w http.ResponseWriter, req *http.Request) {
 			EntryScore: payload.EntryScore,
 			ExitScore:  payload.ExitScore,
 			EventType:  payload.EventType,
-			CreatedAt:  time.Now().UTC(),
+			CreatedAt:  createdAt,
 		}
 		if record.EventType == "" {
 			record.EventType = model.EventTypeDecisionCreated
@@ -213,9 +215,12 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 				writeError(w, http.StatusBadRequest, "timestamp is required")
 				return
 			}
+			createdAt := time.Now().UTC()
 			if payload.ID == "" {
 				// Retried snapshots keep the same ID so both realtime and memory backends upsert the record.
-				payload.ID = payload.SessionID + ":" + payload.Symbol + ":" + payload.Timestamp.UTC().Format(time.RFC3339Nano)
+				payload.ID = buildRTDBRecordID(payload.SessionID, payload.Symbol, "", payload.Timestamp)
+			} else {
+				payload.ID = rtdb.SafeKeyPart(payload.ID)
 			}
 			if payload.EventType == "" {
 				payload.EventType = "market.snapshot"
@@ -238,7 +243,7 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 			if payload.CreatedAt.IsZero() {
 				payload.CreatedAt = payload.Timestamp
 			}
-			payload.UpdatedAt = time.Now().UTC()
+			payload.UpdatedAt = createdAt
 			if err := r.store.SaveMarketSnapshot(req.Context(), payload); err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to save market snapshot")
 				return
@@ -317,24 +322,25 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 		return
 	}
 
+	createdAt := time.Now().UTC()
 	record := model.DecisionRecord{
-		ID:         time.Now().UTC().Format("20060102T150405.000000000Z"),
+		ID:         buildRTDBRecordID(sessionID, payload.Symbol, action, createdAt),
 		SessionID:  sessionID,
 		Symbol:     payload.Symbol,
 		Action:     action,
 		Reason:     payload.Reason,
 		EntryScore: payload.EntryScore,
 		ExitScore:  payload.ExitScore,
-		CreatedAt:  time.Now().UTC(),
+		CreatedAt:  createdAt,
 	}
 	switch action {
 	case "accept":
 		record.EventType = model.EventTypeDecisionAccepted
-		record.WindowID = sessionID + ":" + payload.Symbol + ":" + record.ID
+		record.WindowID = buildRTDBRecordID(sessionID, payload.Symbol, action, record.CreatedAt)
 	case "exit":
 		record.EventType = model.EventTypeDecisionExited
 		if window := findOpenWindow(windows, payload.Symbol); window != nil {
-			record.WindowID = window.ID
+			record.WindowID = rtdb.SafeKeyPart(window.ID)
 		}
 	case "reject":
 		record.EventType = model.EventTypeDecisionRejected
@@ -365,7 +371,7 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 	switch action {
 	case "accept":
 		window := model.TradeWindow{
-			ID:              sessionID + ":" + payload.Symbol + ":" + record.ID,
+			ID:              buildRTDBRecordID(sessionID, payload.Symbol, action, record.CreatedAt),
 			SessionID:       sessionID,
 			Symbol:          payload.Symbol,
 			Status:          "open",
@@ -443,6 +449,15 @@ func appendUniqueSymbol(symbols []string, symbol string) []string {
 		}
 	}
 	return append(symbols, symbol)
+}
+
+func buildRTDBRecordID(sessionID string, symbol string, action string, timestamp time.Time) string {
+	parts := []string{rtdb.SafeKeyPart(sessionID), rtdb.SafeKeyPart(symbol)}
+	if trimmedAction := strings.TrimSpace(action); trimmedAction != "" {
+		parts = append(parts, rtdb.SafeKeyPart(trimmedAction))
+	}
+	parts = append(parts, rtdb.SafeTimestampKey(timestamp))
+	return strings.Join(parts, ":")
 }
 
 func selectSessionConfigVersion(sessionVersion string, versions []model.ConfigVersion) *model.ConfigVersion {
@@ -558,6 +573,9 @@ func (r *Router) publishNotification(ctx context.Context, decision model.Decisio
 	if r.notifier == nil {
 		return
 	}
+	if strings.EqualFold(decision.Action, "HOLD") {
+		return
+	}
 	event := notify.Event{
 		SessionID: decision.SessionID,
 		Symbol:    decision.Symbol,
@@ -573,11 +591,15 @@ func (r *Router) publishNotification(ctx context.Context, decision model.Decisio
 }
 
 func (r *Router) persistSignalEvent(ctx context.Context, decision model.DecisionRecord) error {
+	if strings.EqualFold(decision.Action, "HOLD") {
+		return nil
+	}
 	event := model.SignalEvent{
 		ID:         decision.ID,
 		SessionID:  decision.SessionID,
 		WindowID:   decision.WindowID,
 		Symbol:     decision.Symbol,
+		Action:     decision.Action,
 		State:      signalStateForDecision(decision),
 		EntryScore: decision.EntryScore,
 		ExitScore:  decision.ExitScore,
