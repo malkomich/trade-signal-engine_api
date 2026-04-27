@@ -18,7 +18,7 @@ func TestSnapshotFromDecision(t *testing.T) {
 		&model.TradeWindow{ID: "window-1"},
 	)
 
-	if snapshot.ID != "session-1:decision-1:decision.accepted:window-1" {
+	if snapshot.ID != "session-1:decision-1:decision_accepted:window-1" {
 		t.Fatalf("unexpected snapshot id: %s", snapshot.ID)
 	}
 	if snapshot.WindowID != "window-1" {

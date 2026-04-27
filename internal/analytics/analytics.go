@@ -3,6 +3,7 @@ package analytics
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"trade-signal-engine-api/internal/model"
@@ -15,7 +16,7 @@ func IndicatorOrder() []string {
 }
 
 func SnapshotFromDecision(decision model.DecisionRecord, window *model.TradeWindow) model.WindowSnapshot {
-	snapshotID := fmt.Sprintf("%s:%s:%s", decision.SessionID, decision.ID, decision.EventType)
+	snapshotID := fmt.Sprintf("%s:%s:%s", decision.SessionID, decision.ID, rtdbSafeKeyPart(decision.EventType))
 	if window != nil && window.ID != "" {
 		snapshotID = fmt.Sprintf("%s:%s", snapshotID, window.ID)
 	}
@@ -36,6 +37,17 @@ func SnapshotFromDecision(decision model.DecisionRecord, window *model.TradeWind
 		}
 	}
 	return snapshot
+}
+
+func rtdbSafeKeyPart(value string) string {
+	return strings.NewReplacer(
+		".", "_",
+		"#", "_",
+		"$", "_",
+		"[", "_",
+		"]", "_",
+		"/", "_",
+	).Replace(value)
 }
 
 func BuildWindowSummary(sessionID string, windows []model.TradeWindow, snapshots []model.WindowSnapshot, now time.Time) model.WindowAnalyticsSummary {
