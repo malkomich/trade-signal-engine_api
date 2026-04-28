@@ -383,6 +383,38 @@ func TestMarketSnapshotsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMarketSnapshotsRoundTripIncludesNewIndicators(t *testing.T) {
+	st := store.NewMemoryStore()
+	router := NewRouter(st, nil, slog.Default(), "QQQ")
+
+	postReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"AAPL","session_id":"session-1","timestamp":"2024-04-22T13:30:00Z","close":123.45,"bollinger_middle":120.0,"bollinger_upper":124.0,"bollinger_lower":118.0,"obv":23456.0,"relative_volume":1.3,"volume_profile":0.21,"event_type":"market.snapshot"}`))
+	postRR := httptest.NewRecorder()
+	router.ServeHTTP(postRR, postReq)
+	if postRR.Code != http.StatusCreated {
+		t.Fatalf("expected market snapshot status 201, got %d: %s", postRR.Code, postRR.Body.String())
+	}
+
+	var createdSnapshot model.MarketSnapshot
+	if err := json.Unmarshal(postRR.Body.Bytes(), &createdSnapshot); err != nil {
+		t.Fatalf("expected valid market snapshot json body: %v", err)
+	}
+	assertRTDBSafeKey(t, "market snapshot id", createdSnapshot.ID)
+
+	snapshots, err := st.ListMarketSnapshots(nil, "session-1")
+	if err != nil {
+		t.Fatalf("list snapshots: %v", err)
+	}
+	if len(snapshots) != 1 {
+		t.Fatalf("expected one persisted snapshot, got %#v", snapshots)
+	}
+	if snapshots[0].BollingerMiddle != 120.0 || snapshots[0].BollingerUpper != 124.0 || snapshots[0].BollingerLower != 118.0 {
+		t.Fatalf("expected bollinger bands to round-trip, got %#v", snapshots[0])
+	}
+	if snapshots[0].OBV != 23456.0 || snapshots[0].RelativeVolume != 1.3 || snapshots[0].VolumeProfile != 0.21 {
+		t.Fatalf("expected volume indicators to round-trip, got %#v", snapshots[0])
+	}
+}
+
 func TestMarketSnapshotsValidatePayloadAndSessionConsistency(t *testing.T) {
 	st := store.NewMemoryStore()
 	router := NewRouter(st, nil, slog.Default(), "IXIC")
