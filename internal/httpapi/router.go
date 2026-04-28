@@ -744,6 +744,12 @@ func optimizationSnapshotProfile(snapshot model.MarketSnapshot) map[string]float
 		"macd_histogram": snapshot.MACDHistogram,
 		"stochastic_k":   snapshot.StochasticK,
 		"stochastic_d":   snapshot.StochasticD,
+		"bollinger_middle": snapshot.BollingerMiddle,
+		"bollinger_upper":  snapshot.BollingerUpper,
+		"bollinger_lower":  snapshot.BollingerLower,
+		"obv":              snapshot.OBV,
+		"relative_volume":  snapshot.RelativeVolume,
+		"volume_profile":   snapshot.VolumeProfile,
 		"entry_score":    snapshot.EntryScore,
 		"exit_score":     snapshot.ExitScore,
 	}

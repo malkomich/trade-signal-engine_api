@@ -89,6 +89,12 @@ type MarketSnapshot struct {
 	MACDHistogram   float64   `json:"macd_histogram"`
 	StochasticK     float64   `json:"stochastic_k"`
 	StochasticD     float64   `json:"stochastic_d"`
+	BollingerMiddle float64   `json:"bollinger_middle"`
+	BollingerUpper   float64   `json:"bollinger_upper"`
+	BollingerLower   float64   `json:"bollinger_lower"`
+	OBV             float64   `json:"obv"`
+	RelativeVolume  float64   `json:"relative_volume"`
+	VolumeProfile   float64   `json:"volume_profile"`
 	EntryScore      float64   `json:"entry_score"`
 	ExitScore       float64   `json:"exit_score"`
 	EventType       string    `json:"event_type"`
