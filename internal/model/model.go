@@ -90,8 +90,8 @@ type MarketSnapshot struct {
 	StochasticK     float64   `json:"stochastic_k"`
 	StochasticD     float64   `json:"stochastic_d"`
 	BollingerMiddle float64   `json:"bollinger_middle"`
-	BollingerUpper   float64   `json:"bollinger_upper"`
-	BollingerLower   float64   `json:"bollinger_lower"`
+	BollingerUpper  float64   `json:"bollinger_upper"`
+	BollingerLower  float64   `json:"bollinger_lower"`
 	OBV             float64   `json:"obv"`
 	RelativeVolume  float64   `json:"relative_volume"`
 	VolumeProfile   float64   `json:"volume_profile"`
