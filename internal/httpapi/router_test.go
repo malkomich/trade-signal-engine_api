@@ -308,7 +308,7 @@ func TestAcceptAndMarketSnapshotSanitizeRTDBUnsafeSymbols(t *testing.T) {
 	}
 	assertRTDBSafeKey(t, "persisted window id", windows[0].ID)
 
-	postReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"BRK.B","session_id":"session-1","timestamp":"2024-04-22T13:30:00Z","close":123.45,"event_type":"market.snapshot"}`))
+	postReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"BRK.B","session_id":"session-1","timeframe":"5m","timestamp":"2024-04-22T13:30:00Z","close":123.45,"event_type":"market.snapshot"}`))
 	postRR := httptest.NewRecorder()
 	router.ServeHTTP(postRR, postReq)
 	if postRR.Code != http.StatusCreated {
@@ -348,7 +348,7 @@ func TestMarketSnapshotsRoundTrip(t *testing.T) {
 	st := store.NewMemoryStore()
 	router := NewRouter(st, nil, slog.Default(), "QQQ")
 
-	postReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"BRK.B","session_id":"session-1","timestamp":"2024-04-22T13:30:00Z","close":123.45,"event_type":"market.snapshot"}`))
+	postReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"BRK.B","session_id":"session-1","timestamp":"2024-04-22T13:30:00Z","timeframe":"5m","close":123.45,"event_type":"market.snapshot"}`))
 	postRR := httptest.NewRecorder()
 	router.ServeHTTP(postRR, postReq)
 	if postRR.Code != http.StatusCreated {
@@ -373,6 +373,9 @@ func TestMarketSnapshotsRoundTrip(t *testing.T) {
 	}
 	if len(snapshots) != 1 || snapshots[0].Symbol != "BRK.B" {
 		t.Fatalf("expected persisted market snapshot, got %#v", snapshots)
+	}
+	if snapshots[0].Timeframe != "5m" {
+		t.Fatalf("expected timeframe to round-trip, got %#v", snapshots[0].Timeframe)
 	}
 	if snapshots[0].BenchmarkSymbol != "QQQ" {
 		t.Fatalf("expected configured benchmark symbol, got %#v", snapshots[0].BenchmarkSymbol)
