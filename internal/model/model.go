@@ -68,6 +68,7 @@ type MarketSnapshot struct {
 	SessionID       string    `json:"session_id"`
 	WindowID        string    `json:"window_id,omitempty"`
 	Symbol          string    `json:"symbol"`
+	Timeframe       string    `json:"timeframe,omitempty"`
 	Timestamp       time.Time `json:"timestamp"`
 	Open            float64   `json:"open"`
 	High            float64   `json:"high"`

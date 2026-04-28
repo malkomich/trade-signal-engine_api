@@ -215,10 +215,14 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 				writeError(w, http.StatusBadRequest, "timestamp is required")
 				return
 			}
+			if payload.Timeframe == "" {
+				payload.Timeframe = "1m"
+			}
+			payload.Timeframe = rtdb.SafeKeyPart(payload.Timeframe)
 			createdAt := time.Now().UTC()
 			if payload.ID == "" {
 				// Retried snapshots keep the same ID so both realtime and memory backends upsert the record.
-				payload.ID = buildRTDBRecordID(payload.SessionID, payload.Symbol, "", payload.Timestamp)
+				payload.ID = buildRTDBMarketSnapshotID(payload.SessionID, payload.Symbol, payload.Timeframe, payload.Timestamp)
 			} else {
 				payload.ID = rtdb.SafeKeyPart(payload.ID)
 			}
@@ -456,6 +460,12 @@ func buildRTDBRecordID(sessionID string, symbol string, action string, timestamp
 	if trimmedAction := strings.TrimSpace(action); trimmedAction != "" {
 		parts = append(parts, rtdb.SafeKeyPart(trimmedAction))
 	}
+	parts = append(parts, rtdb.SafeTimestampKey(timestamp))
+	return strings.Join(parts, ":")
+}
+
+func buildRTDBMarketSnapshotID(sessionID string, symbol string, timeframe string, timestamp time.Time) string {
+	parts := []string{rtdb.SafeKeyPart(sessionID), rtdb.SafeKeyPart(symbol), rtdb.SafeKeyPart(timeframe)}
 	parts = append(parts, rtdb.SafeTimestampKey(timestamp))
 	return strings.Join(parts, ":")
 }

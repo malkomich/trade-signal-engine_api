@@ -83,6 +83,9 @@ func (s *RealtimeDatabaseStore) ListMarketSnapshots(ctx context.Context, session
 		if items[i].Symbol != items[j].Symbol {
 			return items[i].Symbol < items[j].Symbol
 		}
+		if items[i].Timeframe != items[j].Timeframe {
+			return items[i].Timeframe < items[j].Timeframe
+		}
 		return items[i].ID < items[j].ID
 	})
 	return items, nil
