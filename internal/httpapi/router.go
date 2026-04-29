@@ -90,6 +90,7 @@ func (r *Router) decisions(w http.ResponseWriter, req *http.Request) {
 			Reason:     payload.Reason,
 			EntryScore: payload.EntryScore,
 			ExitScore:  payload.ExitScore,
+			SignalTier: payload.SignalTier,
 			EventType:  payload.EventType,
 			CreatedAt:  createdAt,
 		}
@@ -335,6 +336,7 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 		Reason:     payload.Reason,
 		EntryScore: payload.EntryScore,
 		ExitScore:  payload.ExitScore,
+		SignalTier: payload.SignalTier,
 		CreatedAt:  createdAt,
 	}
 	switch action {
@@ -610,6 +612,7 @@ func (r *Router) persistSignalEvent(ctx context.Context, decision model.Decision
 		WindowID:   decision.WindowID,
 		Symbol:     decision.Symbol,
 		Action:     decision.Action,
+		SignalTier: decision.SignalTier,
 		State:      signalStateForDecision(decision),
 		EntryScore: decision.EntryScore,
 		ExitScore:  decision.ExitScore,

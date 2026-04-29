@@ -9,6 +9,7 @@ type DecisionRequest struct {
 	Reason      string  `json:"reason"`
 	EntryScore  float64 `json:"entry_score"`
 	ExitScore   float64 `json:"exit_score"`
+	SignalTier  string  `json:"signal_tier,omitempty"`
 	EventType   string  `json:"event_type,omitempty"`
 	RequestedBy string  `json:"requested_by,omitempty"`
 }
@@ -44,6 +45,7 @@ type DecisionRecord struct {
 	Reason     string    `json:"reason"`
 	EntryScore float64   `json:"entry_score"`
 	ExitScore  float64   `json:"exit_score"`
+	SignalTier string    `json:"signal_tier,omitempty"`
 	EventType  string    `json:"event_type"`
 	CreatedAt  time.Time `json:"created_at"`
 }
@@ -54,6 +56,7 @@ type SignalEvent struct {
 	WindowID   string    `json:"window_id,omitempty"`
 	Symbol     string    `json:"symbol"`
 	Action     string    `json:"action,omitempty"`
+	SignalTier string    `json:"signal_tier,omitempty"`
 	State      string    `json:"state"`
 	EntryScore float64   `json:"entry_score"`
 	ExitScore  float64   `json:"exit_score"`
@@ -100,6 +103,7 @@ type MarketSnapshot struct {
 	ExitScore       float64   `json:"exit_score"`
 	EventType       string    `json:"event_type"`
 	SignalAction    string    `json:"signal_action"`
+	SignalTier      string    `json:"signal_tier,omitempty"`
 	SignalState     string    `json:"signal_state"`
 	SignalRegime    string    `json:"signal_regime"`
 	BenchmarkSymbol string    `json:"benchmark_symbol,omitempty"`
