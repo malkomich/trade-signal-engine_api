@@ -9,6 +9,7 @@ type DecisionRequest struct {
 	Reason      string  `json:"reason"`
 	EntryScore  float64 `json:"entry_score"`
 	ExitScore   float64 `json:"exit_score"`
+	SignalTier  string  `json:"signal_tier,omitempty"`
 	EventType   string  `json:"event_type,omitempty"`
 	RequestedBy string  `json:"requested_by,omitempty"`
 }
@@ -44,6 +45,7 @@ type DecisionRecord struct {
 	Reason     string    `json:"reason"`
 	EntryScore float64   `json:"entry_score"`
 	ExitScore  float64   `json:"exit_score"`
+	SignalTier string    `json:"signal_tier,omitempty"`
 	EventType  string    `json:"event_type"`
 	CreatedAt  time.Time `json:"created_at"`
 }
@@ -54,6 +56,7 @@ type SignalEvent struct {
 	WindowID   string    `json:"window_id,omitempty"`
 	Symbol     string    `json:"symbol"`
 	Action     string    `json:"action,omitempty"`
+	SignalTier string    `json:"signal_tier,omitempty"`
 	State      string    `json:"state"`
 	EntryScore float64   `json:"entry_score"`
 	ExitScore  float64   `json:"exit_score"`
@@ -64,48 +67,53 @@ type SignalEvent struct {
 }
 
 type MarketSnapshot struct {
-	ID              string    `json:"id"`
-	SessionID       string    `json:"session_id"`
-	WindowID        string    `json:"window_id,omitempty"`
-	Symbol          string    `json:"symbol"`
-	Timeframe       string    `json:"timeframe,omitempty"`
-	Timestamp       time.Time `json:"timestamp"`
-	Open            float64   `json:"open"`
-	High            float64   `json:"high"`
-	Low             float64   `json:"low"`
-	Close           float64   `json:"close"`
-	Volume          float64   `json:"volume"`
-	SMAFast         float64   `json:"sma_fast"`
-	SMASlow         float64   `json:"sma_slow"`
-	EMAFast         float64   `json:"ema_fast"`
-	EMASlow         float64   `json:"ema_slow"`
-	VWAP            float64   `json:"vwap"`
-	RSI             float64   `json:"rsi"`
-	ATR             float64   `json:"atr"`
-	PlusDI          float64   `json:"plus_di"`
-	MinusDI         float64   `json:"minus_di"`
-	ADX             float64   `json:"adx"`
-	MACD            float64   `json:"macd"`
-	MACDSignal      float64   `json:"macd_signal"`
-	MACDHistogram   float64   `json:"macd_histogram"`
-	StochasticK     float64   `json:"stochastic_k"`
-	StochasticD     float64   `json:"stochastic_d"`
-	BollingerMiddle float64   `json:"bollinger_middle"`
-	BollingerUpper  float64   `json:"bollinger_upper"`
-	BollingerLower  float64   `json:"bollinger_lower"`
-	OBV             float64   `json:"obv"`
-	RelativeVolume  float64   `json:"relative_volume"`
-	VolumeProfile   float64   `json:"volume_profile"`
-	EntryScore      float64   `json:"entry_score"`
-	ExitScore       float64   `json:"exit_score"`
-	EventType       string    `json:"event_type"`
-	SignalAction    string    `json:"signal_action"`
-	SignalState     string    `json:"signal_state"`
-	SignalRegime    string    `json:"signal_regime"`
-	BenchmarkSymbol string    `json:"benchmark_symbol,omitempty"`
-	Reasons         []string  `json:"reasons"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	SessionID          string    `json:"session_id"`
+	WindowID           string    `json:"window_id,omitempty"`
+	Symbol             string    `json:"symbol"`
+	Timeframe          string    `json:"timeframe,omitempty"`
+	Timestamp          time.Time `json:"timestamp"`
+	Open               float64   `json:"open"`
+	High               float64   `json:"high"`
+	Low                float64   `json:"low"`
+	Close              float64   `json:"close"`
+	Volume             float64   `json:"volume"`
+	SMAFast            float64   `json:"sma_fast"`
+	SMASlow            float64   `json:"sma_slow"`
+	EMAFast            float64   `json:"ema_fast"`
+	EMASlow            float64   `json:"ema_slow"`
+	VWAP               float64   `json:"vwap"`
+	RSI                float64   `json:"rsi"`
+	RSIDelta           float64   `json:"rsi_delta"`
+	ATR                float64   `json:"atr"`
+	PlusDI             float64   `json:"plus_di"`
+	MinusDI            float64   `json:"minus_di"`
+	ADX                float64   `json:"adx"`
+	MACD               float64   `json:"macd"`
+	MACDSignal         float64   `json:"macd_signal"`
+	MACDHistogram      float64   `json:"macd_histogram"`
+	MACDHistogramDelta float64   `json:"macd_histogram_delta"`
+	StochasticK        float64   `json:"stochastic_k"`
+	StochasticD        float64   `json:"stochastic_d"`
+	StochasticKDelta   float64   `json:"stochastic_k_delta"`
+	StochasticDDelta   float64   `json:"stochastic_d_delta"`
+	BollingerMiddle    float64   `json:"bollinger_middle"`
+	BollingerUpper     float64   `json:"bollinger_upper"`
+	BollingerLower     float64   `json:"bollinger_lower"`
+	OBV                float64   `json:"obv"`
+	RelativeVolume     float64   `json:"relative_volume"`
+	VolumeProfile      float64   `json:"volume_profile"`
+	EntryScore         float64   `json:"entry_score"`
+	ExitScore          float64   `json:"exit_score"`
+	EventType          string    `json:"event_type"`
+	SignalAction       string    `json:"signal_action"`
+	SignalTier         string    `json:"signal_tier,omitempty"`
+	SignalState        string    `json:"signal_state"`
+	SignalRegime       string    `json:"signal_regime"`
+	BenchmarkSymbol    string    `json:"benchmark_symbol,omitempty"`
+	Reasons            []string  `json:"reasons"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 type SessionSummary struct {
