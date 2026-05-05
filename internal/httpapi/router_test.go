@@ -418,6 +418,84 @@ func TestMarketSnapshotsRoundTripIncludesNewIndicators(t *testing.T) {
 	}
 }
 
+func TestOptimizationSnapshotProfileIncludesNewIndicatorDeltas(t *testing.T) {
+	profile := optimizationSnapshotProfile(model.MarketSnapshot{
+		Close:              123.45,
+		SMAFast:            120.1,
+		SMASlow:            119.4,
+		EMAFast:            121.2,
+		EMASlow:            120.3,
+		VWAP:               122.5,
+		RSI:                57.2,
+		RSIDelta:           1.4,
+		ATR:                2.1,
+		PlusDI:             28.0,
+		MinusDI:            14.0,
+		ADX:                26.0,
+		MACD:               0.48,
+		MACDSignal:         0.31,
+		MACDHistogram:      0.17,
+		MACDHistogramDelta: 0.04,
+		StochasticK:        62.0,
+		StochasticD:        55.0,
+		StochasticKDelta:   3.2,
+		StochasticDDelta:   1.1,
+		BollingerMiddle:    121.0,
+		BollingerUpper:     124.0,
+		BollingerLower:     118.0,
+		OBV:                34567.0,
+		RelativeVolume:     1.25,
+		VolumeProfile:      0.19,
+		EntryScore:         0.72,
+		ExitScore:          0.41,
+	})
+
+	if got := profile["rsi_delta"]; got != 1.4 {
+		t.Fatalf("expected rsi_delta to be included, got %v", got)
+	}
+	if got := profile["macd_histogram_delta"]; got != 0.04 {
+		t.Fatalf("expected macd_histogram_delta to be included, got %v", got)
+	}
+	if got := profile["stochastic_k_delta"]; got != 3.2 {
+		t.Fatalf("expected stochastic_k_delta to be included, got %v", got)
+	}
+	if got := profile["stochastic_d_delta"]; got != 1.1 {
+		t.Fatalf("expected stochastic_d_delta to be included, got %v", got)
+	}
+}
+
+func TestDecisionsEndpointPersistsSignalTier(t *testing.T) {
+	st := store.NewMemoryStore()
+	router := NewRouter(st, nil, slog.Default(), "QQQ")
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/decisions", strings.NewReader(`{"session_id":"session-1","symbol":"AAPL","action":"BUY_ALERT","reason":"entry-qualified","entry_score":0.72,"exit_score":0.31,"signal_tier":"balanced_buy"}`))
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var record model.DecisionRecord
+	if err := json.Unmarshal(rr.Body.Bytes(), &record); err != nil {
+		t.Fatalf("expected valid json body: %v", err)
+	}
+	if record.SignalTier != "balanced_buy" {
+		t.Fatalf("expected signal tier to persist, got %#v", record.SignalTier)
+	}
+
+	decisions, err := st.ListDecisions(nil, "session-1")
+	if err != nil {
+		t.Fatalf("list decisions: %v", err)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("expected one stored decision, got %#v", decisions)
+	}
+	if decisions[0].SignalTier != "balanced_buy" {
+		t.Fatalf("expected stored decision tier, got %#v", decisions[0].SignalTier)
+	}
+}
+
 func TestMarketSnapshotsValidatePayloadAndSessionConsistency(t *testing.T) {
 	st := store.NewMemoryStore()
 	router := NewRouter(st, nil, slog.Default(), "IXIC")
