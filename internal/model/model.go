@@ -84,6 +84,7 @@ type MarketSnapshot struct {
 	EMASlow         float64   `json:"ema_slow"`
 	VWAP            float64   `json:"vwap"`
 	RSI             float64   `json:"rsi"`
+	RSIDelta        float64   `json:"rsi_delta"`
 	ATR             float64   `json:"atr"`
 	PlusDI          float64   `json:"plus_di"`
 	MinusDI         float64   `json:"minus_di"`
@@ -91,8 +92,11 @@ type MarketSnapshot struct {
 	MACD            float64   `json:"macd"`
 	MACDSignal      float64   `json:"macd_signal"`
 	MACDHistogram   float64   `json:"macd_histogram"`
+	MACDHistogramDelta float64 `json:"macd_histogram_delta"`
 	StochasticK     float64   `json:"stochastic_k"`
 	StochasticD     float64   `json:"stochastic_d"`
+	StochasticKDelta float64  `json:"stochastic_k_delta"`
+	StochasticDDelta float64  `json:"stochastic_d_delta"`
 	BollingerMiddle float64   `json:"bollinger_middle"`
 	BollingerUpper  float64   `json:"bollinger_upper"`
 	BollingerLower  float64   `json:"bollinger_lower"`
