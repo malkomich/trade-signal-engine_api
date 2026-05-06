@@ -32,13 +32,11 @@ func TestPushoverPublisherPostsFormEncodedNotification(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	publisher := &PushoverPublisher{
-		sender:          server.Client(),
-		endpointURL:     server.URL,
-		userKey:         "user-key",
-		apiToken:        "api-token",
-		device:          "malkphone",
-		sound:           "trade-sound",
-		applicationName: "trade-signal-engine",
+		sender:      server.Client(),
+		endpointURL: server.URL,
+		userKey:     "user-key",
+		apiToken:    "api-token",
+		sound:       "trade-sound",
 	}
 
 	event := Event{
@@ -60,14 +58,11 @@ func TestPushoverPublisherPostsFormEncodedNotification(t *testing.T) {
 	if got := received.Get("user"); got != "user-key" {
 		t.Fatalf("expected user user-key, got %q", got)
 	}
-	if got := received.Get("device"); got != "malkphone" {
-		t.Fatalf("expected device malkphone, got %q", got)
-	}
 	if got := received.Get("sound"); got != "trade-sound" {
 		t.Fatalf("expected sound trade-sound, got %q", got)
 	}
-	if got := received.Get("title"); got != "trade-signal-engine - BUY signal" {
-		t.Fatalf("expected title to be prefixed with application name, got %q", got)
+	if got := received.Get("title"); got != "BUY signal" {
+		t.Fatalf("expected title to be forwarded unchanged, got %q", got)
 	}
 	if got := received.Get("message"); got != "NVDA buy at 15:22" {
 		t.Fatalf("expected message body forwarded, got %q", got)
@@ -78,10 +73,10 @@ func TestPushoverPublisherPostsFormEncodedNotification(t *testing.T) {
 }
 
 func TestNewPushoverPublisherRejectsMissingCredentials(t *testing.T) {
-	if _, err := NewPushoverPublisher("", "token", "", "", "trade-signal-engine"); err == nil {
+	if _, err := NewPushoverPublisher("", "token", "trade-sound"); err == nil {
 		t.Fatalf("expected missing user key to fail")
 	}
-	if _, err := NewPushoverPublisher("user", "", "", "", "trade-signal-engine"); err == nil {
+	if _, err := NewPushoverPublisher("user", "", "trade-sound"); err == nil {
 		t.Fatalf("expected missing api token to fail")
 	}
 }

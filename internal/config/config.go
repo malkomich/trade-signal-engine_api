@@ -17,9 +17,7 @@ type Config struct {
 	NotifyTopic            string
 	PushoverUserKey        string
 	PushoverAPIToken       string
-	PushoverDevice         string
 	PushoverSound          string
-	PushoverAppName        string
 	DefaultBenchmarkSymbol string
 }
 
@@ -34,9 +32,7 @@ func FromEnv() Config {
 		NotifyTopic:            getenv("FCM_TOPIC", "trade-signal-engine"),
 		PushoverUserKey:        os.Getenv("PUSHOVER_USER_KEY"),
 		PushoverAPIToken:       os.Getenv("PUSHOVER_API_TOKEN"),
-		PushoverDevice:         os.Getenv("PUSHOVER_DEVICE"),
 		PushoverSound:          os.Getenv("PUSHOVER_SOUND"),
-		PushoverAppName:        getenv("PUSHOVER_APP_NAME", "trade-signal-engine"),
 		DefaultBenchmarkSymbol: getenv("MARKET_BENCHMARK_SYMBOL", "IXIC"),
 	}
 	if cfg.DatabaseURL == "" && cfg.ProjectID != "" {
