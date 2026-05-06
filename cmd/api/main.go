@@ -47,10 +47,25 @@ func main() {
 		}
 		notifier = notify.NewCollapsingPublisher(fcmPublisher, 2*time.Minute)
 	}
+	var pushoverNotifier notify.Publisher
+	if cfg.PushoverUserKey != "" && cfg.PushoverAPIToken != "" {
+		pushoverPublisher, err := notify.NewPushoverPublisher(
+			cfg.PushoverUserKey,
+			cfg.PushoverAPIToken,
+			cfg.PushoverDevice,
+			cfg.PushoverSound,
+			cfg.PushoverAppName,
+		)
+		if err != nil {
+			logger.Error("pushover publisher initialization failed", "error", err)
+			os.Exit(1)
+		}
+		pushoverNotifier = pushoverPublisher
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewRouter(st, notifier, logger, cfg.DefaultBenchmarkSymbol),
+		Handler:           httpapi.NewRouter(st, notifier, pushoverNotifier, logger, cfg.DefaultBenchmarkSymbol),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

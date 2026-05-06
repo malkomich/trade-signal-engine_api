@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"trade-signal-engine-api/internal/model"
+	"trade-signal-engine-api/internal/notify"
 	"trade-signal-engine-api/internal/store"
 )
 
@@ -30,6 +31,17 @@ type configTestStore struct {
 	session  model.SessionSummary
 }
 
+type recordingNotifyPublisher struct {
+	event notify.Event
+	calls int
+}
+
+func (p *recordingNotifyPublisher) Publish(_ context.Context, event notify.Event) error {
+	p.calls++
+	p.event = event
+	return nil
+}
+
 func (s *configTestStore) ListConfigVersions(_ context.Context, _ string) ([]model.ConfigVersion, error) {
 	return append([]model.ConfigVersion(nil), s.versions...), nil
 }
@@ -45,7 +57,7 @@ func TestRootEndpointReturnsServiceMetadata(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
 
-	NewRouter(nil, nil, slog.Default(), "IXIC").ServeHTTP(rr, req)
+	NewRouter(nil, nil, nil, slog.Default(), "IXIC").ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -64,6 +76,18 @@ func TestRootEndpointReturnsServiceMetadata(t *testing.T) {
 	if !ok || len(routes) == 0 {
 		t.Fatalf("expected routes array in payload, got %T %#v", payload["routes"], payload["routes"])
 	}
+	if !containsRoute(routes, "/v1/sessions/{id}/notifications/pushover") {
+		t.Fatalf("expected pushover route in payload, got %#v", routes)
+	}
+}
+
+func containsRoute(routes []any, target string) bool {
+	for _, route := range routes {
+		if route == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSessionConfigEndpointReturnsSelectedVersion(t *testing.T) {
@@ -95,7 +119,7 @@ func TestSessionConfigEndpointReturnsSelectedVersion(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/config", nil)
 	rr := httptest.NewRecorder()
 
-	NewRouter(st, nil, slog.Default(), "IXIC").ServeHTTP(rr, req)
+	NewRouter(st, nil, nil, slog.Default(), "IXIC").ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -113,6 +137,39 @@ func TestSessionConfigEndpointReturnsSelectedVersion(t *testing.T) {
 	}
 	if got := selected["version"]; got != "v19" {
 		t.Fatalf("expected selected version v19, got %v", got)
+	}
+}
+
+func TestSessionPushoverNotificationEndpointPublishesNotification(t *testing.T) {
+	st := store.NewMemoryStore()
+	pushover := &recordingNotifyPublisher{}
+	router := NewRouter(st, nil, pushover, slog.Default(), "IXIC")
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/sessions/session-1/notifications/pushover",
+		strings.NewReader(`{"session_id":"session-1","symbol":"NVDA","action":"BUY_ALERT","reason":"entry-qualified; trend:aligned","entry_score":0.82,"exit_score":0.18,"signal_tier":"balanced_buy","event_type":"signal.emitted","window_id":"window-1","title":"BUY signal","body":"NVDA buy at 15:22"}`),
+	)
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d", rr.Code)
+	}
+	if pushover.calls != 1 {
+		t.Fatalf("expected one pushover publish call, got %d", pushover.calls)
+	}
+	if pushover.event.SessionID != "session-1" {
+		t.Fatalf("expected session-1 event, got %#v", pushover.event)
+	}
+	if pushover.event.Symbol != "NVDA" {
+		t.Fatalf("expected NVDA event, got %#v", pushover.event)
+	}
+	if pushover.event.Title != "BUY signal" {
+		t.Fatalf("expected BUY signal title, got %#v", pushover.event.Title)
+	}
+	if pushover.event.Body != "NVDA buy at 15:22" {
+		t.Fatalf("expected body to be forwarded, got %#v", pushover.event.Body)
 	}
 }
 
@@ -135,7 +192,7 @@ func TestSessionConfigEndpointIncludesDefaultOptimizationSummaryWithoutHistory(t
 	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/config", nil)
 	rr := httptest.NewRecorder()
 
-	NewRouter(st, nil, slog.Default(), "IXIC").ServeHTTP(rr, req)
+	NewRouter(st, nil, nil, slog.Default(), "IXIC").ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -203,7 +260,7 @@ func TestUnknownPathReturnsNotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/missing", nil)
 	rr := httptest.NewRecorder()
 
-	NewRouter(nil, nil, slog.Default(), "IXIC").ServeHTTP(rr, req)
+	NewRouter(nil, nil, nil, slog.Default(), "IXIC").ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("expected status 404, got %d", rr.Code)
@@ -216,7 +273,7 @@ func TestAcceptAndExitUpdateSessionStateFromLocalWindowState(t *testing.T) {
 		t.Fatalf("seed session: %v", err)
 	}
 
-	router := NewRouter(st, nil, slog.Default(), "IXIC")
+	router := NewRouter(st, nil, nil, slog.Default(), "IXIC")
 
 	acceptReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/accept", strings.NewReader(`{"symbol":"NVDA","entry_score":0.82,"exit_score":0.17}`))
 	acceptRR := httptest.NewRecorder()
@@ -284,7 +341,7 @@ func TestAcceptAndMarketSnapshotSanitizeRTDBUnsafeSymbols(t *testing.T) {
 		t.Fatalf("seed session: %v", err)
 	}
 
-	router := NewRouter(st, nil, slog.Default(), "IXIC")
+	router := NewRouter(st, nil, nil, slog.Default(), "IXIC")
 
 	acceptReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/accept", strings.NewReader(`{"symbol":"BRK.B","entry_score":0.82,"exit_score":0.17}`))
 	acceptRR := httptest.NewRecorder()
@@ -327,7 +384,7 @@ func TestExitWithoutOpenWindowReturnsNotFound(t *testing.T) {
 		t.Fatalf("seed session: %v", err)
 	}
 
-	router := NewRouter(st, nil, slog.Default(), "IXIC")
+	router := NewRouter(st, nil, nil, slog.Default(), "IXIC")
 	exitReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/exit", strings.NewReader(`{"symbol":"NVDA","entry_score":0.82,"exit_score":0.79}`))
 	exitRR := httptest.NewRecorder()
 	router.ServeHTTP(exitRR, exitReq)
@@ -346,7 +403,7 @@ func TestExitWithoutOpenWindowReturnsNotFound(t *testing.T) {
 
 func TestMarketSnapshotsRoundTrip(t *testing.T) {
 	st := store.NewMemoryStore()
-	router := NewRouter(st, nil, slog.Default(), "QQQ")
+	router := NewRouter(st, nil, nil, slog.Default(), "QQQ")
 
 	postReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"BRK.B","session_id":"session-1","timestamp":"2024-04-22T13:30:00Z","timeframe":"5m","close":123.45,"event_type":"market.snapshot"}`))
 	postRR := httptest.NewRecorder()
@@ -388,7 +445,7 @@ func TestMarketSnapshotsRoundTrip(t *testing.T) {
 
 func TestMarketSnapshotsRoundTripIncludesNewIndicators(t *testing.T) {
 	st := store.NewMemoryStore()
-	router := NewRouter(st, nil, slog.Default(), "QQQ")
+	router := NewRouter(st, nil, nil, slog.Default(), "QQQ")
 
 	postReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"AAPL","session_id":"session-1","timestamp":"2024-04-22T13:30:00Z","close":123.45,"bollinger_middle":120.0,"bollinger_upper":124.0,"bollinger_lower":118.0,"obv":23456.0,"relative_volume":1.3,"volume_profile":0.21,"event_type":"market.snapshot"}`))
 	postRR := httptest.NewRecorder()
@@ -466,7 +523,7 @@ func TestOptimizationSnapshotProfileIncludesNewIndicatorDeltas(t *testing.T) {
 
 func TestDecisionsEndpointPersistsSignalTier(t *testing.T) {
 	st := store.NewMemoryStore()
-	router := NewRouter(st, nil, slog.Default(), "QQQ")
+	router := NewRouter(st, nil, nil, slog.Default(), "QQQ")
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/decisions", strings.NewReader(`{"session_id":"session-1","symbol":"AAPL","action":"BUY_ALERT","reason":"entry-qualified","entry_score":0.72,"exit_score":0.31,"signal_tier":"balanced_buy"}`))
 	rr := httptest.NewRecorder()
@@ -498,7 +555,7 @@ func TestDecisionsEndpointPersistsSignalTier(t *testing.T) {
 
 func TestMarketSnapshotsValidatePayloadAndSessionConsistency(t *testing.T) {
 	st := store.NewMemoryStore()
-	router := NewRouter(st, nil, slog.Default(), "IXIC")
+	router := NewRouter(st, nil, nil, slog.Default(), "IXIC")
 
 	mismatchReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"NVDA","session_id":"session-2","timestamp":"2024-04-22T13:30:00Z"}`))
 	mismatchRR := httptest.NewRecorder()
@@ -531,7 +588,7 @@ func TestMarketSnapshotsValidatePayloadAndSessionConsistency(t *testing.T) {
 
 func TestMarketSnapshotsUpsertByID(t *testing.T) {
 	st := store.NewMemoryStore()
-	router := NewRouter(st, nil, slog.Default(), "IXIC")
+	router := NewRouter(st, nil, nil, slog.Default(), "IXIC")
 
 	firstReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"id":"snapshot-1","symbol":"NVDA","session_id":"session-1","timestamp":"2024-04-22T13:30:00Z","close":123.45}`))
 	firstRR := httptest.NewRecorder()
