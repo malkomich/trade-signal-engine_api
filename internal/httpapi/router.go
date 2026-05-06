@@ -453,6 +453,9 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 
 func (r *Router) sessionPushoverNotification(w http.ResponseWriter, req *http.Request, sessionID string) {
 	if r.pushoverNotifier == nil {
+		if r.logger != nil {
+			r.logger.Warn("pushover notification request rejected", "session_id", sessionID, "reason", "notifier not configured")
+		}
 		writeError(w, http.StatusServiceUnavailable, "pushover notifier is not configured")
 		return
 	}
@@ -492,9 +495,40 @@ func (r *Router) sessionPushoverNotification(w http.ResponseWriter, req *http.Re
 		Body:      body,
 		CreatedAt: payload.CreatedAt,
 	}
+	if r.logger != nil {
+		r.logger.Info(
+			"pushover notification requested",
+			"session_id", payload.SessionID,
+			"symbol", payload.Symbol,
+			"action", payload.Action,
+			"event_type", payload.EventType,
+			"window_id", payload.WindowID,
+		)
+	}
 	if err := r.pushoverNotifier.Publish(req.Context(), event); err != nil {
+		if r.logger != nil {
+			r.logger.Error(
+				"pushover notification delivery failed",
+				"session_id", payload.SessionID,
+				"symbol", payload.Symbol,
+				"action", payload.Action,
+				"event_type", payload.EventType,
+				"window_id", payload.WindowID,
+				"error", err,
+			)
+		}
 		writeError(w, http.StatusBadGateway, "failed to deliver pushover notification")
 		return
+	}
+	if r.logger != nil {
+		r.logger.Info(
+			"pushover notification delivered",
+			"session_id", payload.SessionID,
+			"symbol", payload.Symbol,
+			"action", payload.Action,
+			"event_type", payload.EventType,
+			"window_id", payload.WindowID,
+		)
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"status":     "delivered",
@@ -659,7 +693,40 @@ func (r *Router) publishNotification(ctx context.Context, decision model.Decisio
 	if decision.WindowID != "" {
 		event.Key = decision.WindowID
 	}
-	_ = r.notifier.Publish(ctx, event)
+	if r.logger != nil {
+		r.logger.Info(
+			"decision notification requested",
+			"session_id", decision.SessionID,
+			"symbol", decision.Symbol,
+			"action", decision.Action,
+			"event_type", decision.EventType,
+			"window_id", decision.WindowID,
+		)
+	}
+	if err := r.notifier.Publish(ctx, event); err != nil {
+		if r.logger != nil {
+			r.logger.Error(
+				"decision notification delivery failed",
+				"session_id", decision.SessionID,
+				"symbol", decision.Symbol,
+				"action", decision.Action,
+				"event_type", decision.EventType,
+				"window_id", decision.WindowID,
+				"error", err,
+			)
+		}
+		return
+	}
+	if r.logger != nil {
+		r.logger.Info(
+			"decision notification delivered",
+			"session_id", decision.SessionID,
+			"symbol", decision.Symbol,
+			"action", decision.Action,
+			"event_type", decision.EventType,
+			"window_id", decision.WindowID,
+		)
+	}
 }
 
 func (r *Router) persistSignalEvent(ctx context.Context, decision model.DecisionRecord) error {

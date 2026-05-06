@@ -18,33 +18,26 @@ type pushoverSender interface {
 }
 
 type PushoverPublisher struct {
-	sender          pushoverSender
-	endpointURL     string
-	userKey         string
-	apiToken        string
-	device          string
-	sound           string
-	applicationName string
+	sender      pushoverSender
+	endpointURL string
+	userKey     string
+	apiToken    string
+	sound       string
 }
 
-func NewPushoverPublisher(userKey, apiToken, device, sound, applicationName string) (*PushoverPublisher, error) {
+func NewPushoverPublisher(userKey, apiToken, sound string) (*PushoverPublisher, error) {
 	if strings.TrimSpace(userKey) == "" {
 		return nil, fmt.Errorf("pushover user key is required")
 	}
 	if strings.TrimSpace(apiToken) == "" {
 		return nil, fmt.Errorf("pushover api token is required")
 	}
-	if strings.TrimSpace(applicationName) == "" {
-		applicationName = "trade-signal-engine"
-	}
 	return &PushoverPublisher{
-		sender:          &http.Client{Timeout: 10 * time.Second},
-		endpointURL:     defaultPushoverEndpoint,
-		userKey:         strings.TrimSpace(userKey),
-		apiToken:        strings.TrimSpace(apiToken),
-		device:          strings.TrimSpace(device),
-		sound:           strings.TrimSpace(sound),
-		applicationName: strings.TrimSpace(applicationName),
+		sender:      &http.Client{Timeout: 10 * time.Second},
+		endpointURL: defaultPushoverEndpoint,
+		userKey:     strings.TrimSpace(userKey),
+		apiToken:    strings.TrimSpace(apiToken),
+		sound:       strings.TrimSpace(sound),
 	}, nil
 }
 
@@ -63,20 +56,12 @@ func (p *PushoverPublisher) Publish(ctx context.Context, event Event) error {
 		return fmt.Errorf("pushover notification body is required")
 	}
 	title := strings.TrimSpace(event.Title)
-	if title == "" {
-		title = p.applicationName
-	} else if p.applicationName != "" && !strings.Contains(strings.ToLower(title), strings.ToLower(p.applicationName)) {
-		title = p.applicationName + " - " + title
-	}
 	values := url.Values{}
 	values.Set("token", p.apiToken)
 	values.Set("user", p.userKey)
 	values.Set("message", body)
 	if title != "" {
 		values.Set("title", title)
-	}
-	if p.device != "" {
-		values.Set("device", p.device)
 	}
 	if p.sound != "" {
 		values.Set("sound", p.sound)
@@ -94,8 +79,12 @@ func (p *PushoverPublisher) Publish(ctx context.Context, event Event) error {
 		return err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	responseBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		details := strings.TrimSpace(string(responseBody))
+		if details != "" {
+			return fmt.Errorf("pushover publish failed with status %d: %s", resp.StatusCode, details)
+		}
 		return fmt.Errorf("pushover publish failed with status %d", resp.StatusCode)
 	}
 	return nil

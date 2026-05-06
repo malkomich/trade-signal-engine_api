@@ -65,9 +65,7 @@ jobs:
           API_PORT: 18080
           PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
           PUSHOVER_API_TOKEN: ${{ secrets.PUSHOVER_API_TOKEN }}
-          PUSHOVER_DEVICE: ${{ vars.PUSHOVER_DEVICE }}
           PUSHOVER_SOUND: ${{ vars.PUSHOVER_SOUND }}
-          PUSHOVER_APP_NAME: ${{ vars.PUSHOVER_APP_NAME }}
         run: |
           set -e
           docker compose up -d --build

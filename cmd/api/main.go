@@ -52,15 +52,16 @@ func main() {
 		pushoverPublisher, err := notify.NewPushoverPublisher(
 			cfg.PushoverUserKey,
 			cfg.PushoverAPIToken,
-			cfg.PushoverDevice,
 			cfg.PushoverSound,
-			cfg.PushoverAppName,
 		)
 		if err != nil {
 			logger.Error("pushover publisher initialization failed", "error", err)
 			os.Exit(1)
 		}
 		pushoverNotifier = pushoverPublisher
+		logger.Info("pushover notifications enabled", "sound_configured", cfg.PushoverSound != "")
+	} else {
+		logger.Info("pushover notifications disabled", "reason", "missing user key or api token")
 	}
 
 	srv := &http.Server{
@@ -69,7 +70,12 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	logger.Info("api server starting", "addr", cfg.HTTPAddr, "mode", cfg.StoreBackend)
+	logger.Info(
+		"api server starting",
+		"addr", cfg.HTTPAddr,
+		"mode", cfg.StoreBackend,
+		"pushover_enabled", pushoverNotifier != nil,
+	)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Error("server stopped unexpectedly", "error", err)
 		os.Exit(1)
