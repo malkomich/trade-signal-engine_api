@@ -24,12 +24,13 @@ const (
 type Router struct {
 	store                  store.Store
 	notifier               notify.Publisher
+	pushoverNotifier       notify.Publisher
 	logger                 *slog.Logger
 	defaultBenchmarkSymbol string
 }
 
-func NewRouter(st store.Store, notifier notify.Publisher, logger *slog.Logger, defaultBenchmarkSymbol string) http.Handler {
-	r := &Router{store: st, notifier: notifier, logger: logger, defaultBenchmarkSymbol: defaultBenchmarkSymbol}
+func NewRouter(st store.Store, notifier notify.Publisher, pushoverNotifier notify.Publisher, logger *slog.Logger, defaultBenchmarkSymbol string) http.Handler {
+	r := &Router{store: st, notifier: notifier, pushoverNotifier: pushoverNotifier, logger: logger, defaultBenchmarkSymbol: defaultBenchmarkSymbol}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", r.root)
 	mux.HandleFunc("/healthz", r.healthz)
@@ -57,6 +58,7 @@ func (r *Router) root(w http.ResponseWriter, _ *http.Request) {
 			"/v1/sessions/{id}/exit",
 			"/v1/sessions/{id}/reject",
 			"/v1/sessions/{id}/ack",
+			"/v1/sessions/{id}/notifications/pushover",
 		},
 	})
 }
@@ -141,6 +143,10 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 			r.sessionAction(w, req, sessionID, parts[1])
 			return
 		}
+	}
+	if len(parts) == 3 && parts[1] == "notifications" && parts[2] == "pushover" && req.Method == http.MethodPost {
+		r.sessionPushoverNotification(w, req, sessionID)
+		return
 	}
 	if len(parts) == 2 && parts[1] == "windows" && req.Method == http.MethodGet {
 		windows, err := r.store.ListWindows(req.Context(), sessionID)
@@ -443,6 +449,60 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 	}
 	r.publishNotification(req.Context(), record)
 	writeJSON(w, http.StatusCreated, record)
+}
+
+func (r *Router) sessionPushoverNotification(w http.ResponseWriter, req *http.Request, sessionID string) {
+	if r.pushoverNotifier == nil {
+		writeError(w, http.StatusServiceUnavailable, "pushover notifier is not configured")
+		return
+	}
+	var payload model.PushoverNotificationRequest
+	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json payload")
+		return
+	}
+	if payload.SessionID == "" {
+		payload.SessionID = sessionID
+	}
+	if payload.SessionID != sessionID {
+		writeError(w, http.StatusBadRequest, "session_id does not match path")
+		return
+	}
+	if payload.Symbol == "" || payload.Action == "" {
+		writeError(w, http.StatusBadRequest, "symbol and action are required")
+		return
+	}
+	if payload.CreatedAt.IsZero() {
+		payload.CreatedAt = time.Now().UTC()
+	}
+	title := strings.TrimSpace(payload.Title)
+	if title == "" {
+		title = strings.ToUpper(strings.TrimSpace(payload.Action)) + " signal"
+	}
+	body := strings.TrimSpace(payload.Body)
+	if body == "" {
+		body = payload.Reason
+	}
+	event := notify.Event{
+		Key:       payload.WindowID,
+		SessionID: payload.SessionID,
+		Symbol:    payload.Symbol,
+		Type:      payload.EventType,
+		Title:     title,
+		Body:      body,
+		CreatedAt: payload.CreatedAt,
+	}
+	if err := r.pushoverNotifier.Publish(req.Context(), event); err != nil {
+		writeError(w, http.StatusBadGateway, "failed to deliver pushover notification")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"status":     "delivered",
+		"session_id": sessionID,
+		"symbol":     payload.Symbol,
+		"action":     payload.Action,
+		"event_type": payload.EventType,
+	})
 }
 
 func appendUniqueSymbol(symbols []string, symbol string) []string {
