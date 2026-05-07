@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -15,6 +16,8 @@ import (
 	"trade-signal-engine-api/internal/rtdb"
 	"trade-signal-engine-api/internal/store"
 )
+
+var notificationTimeZone = loadNotificationTimeZone()
 
 const (
 	defaultOptimizerLearningRate = 0.12
@@ -478,14 +481,8 @@ func (r *Router) sessionPushoverNotification(w http.ResponseWriter, req *http.Re
 	if payload.CreatedAt.IsZero() {
 		payload.CreatedAt = time.Now().UTC()
 	}
-	title := strings.TrimSpace(payload.Title)
-	if title == "" {
-		title = strings.ToUpper(strings.TrimSpace(payload.Action)) + " signal"
-	}
-	body := strings.TrimSpace(payload.Body)
-	if body == "" {
-		body = payload.Reason
-	}
+	title := buildNotificationTitle(payload.Action, payload.Symbol)
+	body := buildNotificationBody(payload)
 	event := notify.Event{
 		Key:       payload.WindowID,
 		SessionID: payload.SessionID,
@@ -537,6 +534,81 @@ func (r *Router) sessionPushoverNotification(w http.ResponseWriter, req *http.Re
 		"action":     payload.Action,
 		"event_type": payload.EventType,
 	})
+}
+
+func buildNotificationTitle(action string, symbol string) string {
+	side := notificationActionSide(action)
+	if side == "" {
+		side = strings.ToUpper(strings.TrimSpace(action))
+	}
+	if side == "" {
+		side = "SIGNAL"
+	}
+	normalizedSymbol := strings.ToUpper(strings.TrimSpace(symbol))
+	if normalizedSymbol == "" {
+		return side
+	}
+	return fmt.Sprintf("%s (%s)", side, normalizedSymbol)
+}
+
+func buildNotificationBody(payload model.PushoverNotificationRequest) string {
+	lines := []string{formatNotificationPrice(payload.Price)}
+	side := notificationActionSide(payload.Action)
+	if side == "BUY" {
+		tier := formatSignalTier(payload.SignalTier)
+		if tier == "" {
+			tier = "Buy"
+		}
+		lines = append(lines, fmt.Sprintf("Type: %s", tier))
+		lines = append(lines, fmt.Sprintf("Conviction: %.0f%%", payload.EntryScore*100))
+	} else {
+		lines = append(lines, fmt.Sprintf("Conviction: %.0f%%", payload.ExitScore*100))
+	}
+	lines = append(lines, fmt.Sprintf("Time: %s", formatNotificationTimestamp(payload.CreatedAt)))
+	return strings.Join(lines, "\n")
+}
+
+func formatNotificationPrice(price float64) string {
+	if price <= 0 {
+		return "Price: n/a"
+	}
+	return fmt.Sprintf("Price: %.2f", price)
+}
+
+func notificationActionSide(action string) string {
+	normalized := strings.ToUpper(strings.TrimSpace(action))
+	switch {
+	case strings.HasPrefix(normalized, "BUY"):
+		return "BUY"
+	case strings.HasPrefix(normalized, "SELL"):
+		return "SELL"
+	default:
+		return normalized
+	}
+}
+
+func formatSignalTier(tier string) string {
+	normalized := strings.TrimSpace(tier)
+	if normalized == "" {
+		return ""
+	}
+	normalized = strings.ReplaceAll(normalized, "_", " ")
+	return strings.Title(strings.ToLower(normalized))
+}
+
+func formatNotificationTimestamp(createdAt time.Time) string {
+	if createdAt.IsZero() {
+		return time.Now().In(notificationTimeZone).Format("15:04:05 MST")
+	}
+	return createdAt.In(notificationTimeZone).Format("15:04:05 MST")
+}
+
+func loadNotificationTimeZone() *time.Location {
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		return time.UTC
+	}
+	return location
 }
 
 func appendUniqueSymbol(symbols []string, symbol string) []string {

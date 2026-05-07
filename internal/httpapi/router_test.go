@@ -147,7 +147,7 @@ func TestSessionPushoverNotificationEndpointPublishesNotification(t *testing.T) 
 	req := httptest.NewRequest(
 		http.MethodPost,
 		"/v1/sessions/session-1/notifications/pushover",
-		strings.NewReader(`{"session_id":"session-1","symbol":"NVDA","action":"BUY_ALERT","reason":"entry-qualified; trend:aligned","entry_score":0.82,"exit_score":0.18,"signal_tier":"balanced_buy","event_type":"signal.emitted","window_id":"window-1","title":"BUY signal","body":"NVDA buy at 15:22"}`),
+		strings.NewReader(`{"session_id":"session-1","symbol":"NVDA","action":"BUY_ALERT","reason":"entry-qualified; trend:aligned","price":206.5,"entry_score":0.82,"exit_score":0.18,"signal_tier":"balanced_buy","event_type":"signal.emitted","window_id":"window-1","created_at":"2026-04-24T13:30:00Z"}`),
 	)
 	rr := httptest.NewRecorder()
 
@@ -165,11 +165,11 @@ func TestSessionPushoverNotificationEndpointPublishesNotification(t *testing.T) 
 	if pushover.event.Symbol != "NVDA" {
 		t.Fatalf("expected NVDA event, got %#v", pushover.event)
 	}
-	if pushover.event.Title != "BUY signal" {
-		t.Fatalf("expected BUY signal title, got %#v", pushover.event.Title)
+	if pushover.event.Title != "BUY (NVDA)" {
+		t.Fatalf("expected BUY (NVDA) title, got %#v", pushover.event.Title)
 	}
-	if pushover.event.Body != "NVDA buy at 15:22" {
-		t.Fatalf("expected body to be forwarded, got %#v", pushover.event.Body)
+	if pushover.event.Body != "Price: 206.50\nType: Balanced Buy\nConviction: 82%\nTime: 09:30:00 EDT" {
+		t.Fatalf("expected simplified body, got %#v", pushover.event.Body)
 	}
 }
 
