@@ -169,7 +169,7 @@ func TestSessionPushoverNotificationEndpointPublishesNotification(t *testing.T) 
 	if pushover.event.Title != "BUY (NVDA)" {
 		t.Fatalf("expected BUY (NVDA) title, got %#v", pushover.event.Title)
 	}
-	if pushover.event.Body != "Price: 206.50\nType: Medium Conviction Buy\nConviction: 82%\nTime: 13:30:00 +0000" {
+	if pushover.event.Body != "Price: 206.50\nType: Medium Conviction Buy\nConviction: 82%\nNew York Time: 13:30:00" {
 		t.Fatalf("expected simplified body, got %#v", pushover.event.Body)
 	}
 }
@@ -197,7 +197,7 @@ func TestSessionPushoverNotificationEndpointPublishesSellNotificationWithPriceFa
 	if pushover.event.Title != "SELL" {
 		t.Fatalf("expected SELL title, got %#v", pushover.event.Title)
 	}
-	if pushover.event.Body != "Price: n/a\nConviction: 87%\nTime: 13:30:00 +0000" {
+	if pushover.event.Body != "Price: n/a\nConviction: 87%\nNew York Time: 13:30:00" {
 		t.Fatalf("expected sell body with price fallback, got %#v", pushover.event.Body)
 	}
 }
@@ -244,7 +244,7 @@ func TestNotificationFormattingCoversEdgeCases(t *testing.T) {
 		Price:      0,
 		SignalTier: "",
 	})
-	if body != "Price: n/a\nConviction: 87%\nTime: 13:30:00 +0000" {
+	if body != "Price: n/a\nConviction: 87%\nNew York Time: 13:30:00" {
 		t.Fatalf("expected stable fallback body, got %#v", body)
 	}
 }

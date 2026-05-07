@@ -505,6 +505,7 @@ func (r *Router) sessionPushoverNotification(w http.ResponseWriter, req *http.Re
 			"session_id", payload.SessionID,
 			"symbol", payload.Symbol,
 			"action", payload.Action,
+			"price", payload.Price,
 			"event_type", payload.EventType,
 			"window_id", payload.WindowID,
 		)
@@ -530,6 +531,7 @@ func (r *Router) sessionPushoverNotification(w http.ResponseWriter, req *http.Re
 			"session_id", payload.SessionID,
 			"symbol", payload.Symbol,
 			"action", payload.Action,
+			"price", payload.Price,
 			"event_type", payload.EventType,
 			"window_id", payload.WindowID,
 		)
@@ -571,7 +573,7 @@ func buildNotificationBody(payload model.PushoverNotificationRequest) string {
 	} else {
 		lines = append(lines, fmt.Sprintf("Conviction: %.0f%%", payload.ExitScore*100))
 	}
-	lines = append(lines, fmt.Sprintf("Time: %s", formatNotificationTimestamp(payload.CreatedAt)))
+	lines = append(lines, fmt.Sprintf("New York Time: %s", formatNotificationTimestamp(payload.CreatedAt)))
 	return strings.Join(lines, "\n")
 }
 
@@ -623,9 +625,9 @@ func formatSignalTier(tier string) string {
 func formatNotificationTimestamp(createdAt time.Time) string {
 	location := loadNotificationTimeZone()
 	if createdAt.IsZero() {
-		return time.Now().In(location).Format("15:04:05 -0700")
+		return time.Now().In(location).Format("15:04:05")
 	}
-	return createdAt.In(location).Format("15:04:05 -0700")
+	return createdAt.In(location).Format("15:04:05")
 }
 
 func loadNotificationTimeZone() *time.Location {
