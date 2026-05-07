@@ -3,11 +3,14 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
+	_ "time/tzdata"
 
 	"trade-signal-engine-api/internal/analytics"
 	"trade-signal-engine-api/internal/model"
@@ -478,13 +481,14 @@ func (r *Router) sessionPushoverNotification(w http.ResponseWriter, req *http.Re
 	if payload.CreatedAt.IsZero() {
 		payload.CreatedAt = time.Now().UTC()
 	}
-	title := strings.TrimSpace(payload.Title)
-	if title == "" {
-		title = strings.ToUpper(strings.TrimSpace(payload.Action)) + " signal"
+	title := buildNotificationTitle(payload.Action, payload.Symbol)
+	if strings.TrimSpace(payload.Title) != "" && strings.TrimSpace(payload.Body) != "" && payload.Price == 0 && payload.EntryScore == 0 && payload.ExitScore == 0 && strings.TrimSpace(payload.SignalTier) == "" {
+		title = strings.TrimSpace(payload.Title)
 	}
-	body := strings.TrimSpace(payload.Body)
-	if body == "" {
-		body = payload.Reason
+	body := buildNotificationBody(payload)
+	if strings.TrimSpace(body) == "" && strings.TrimSpace(payload.Body) != "" {
+		// Structured fields take precedence; legacy title/body inputs remain supported for older callers.
+		body = strings.TrimSpace(payload.Body)
 	}
 	event := notify.Event{
 		Key:       payload.WindowID,
@@ -537,6 +541,103 @@ func (r *Router) sessionPushoverNotification(w http.ResponseWriter, req *http.Re
 		"action":     payload.Action,
 		"event_type": payload.EventType,
 	})
+}
+
+func buildNotificationTitle(action string, symbol string) string {
+	side := notificationActionSide(action)
+	if side == "" {
+		side = "SIGNAL"
+	}
+	normalizedSymbol := strings.ToUpper(strings.TrimSpace(symbol))
+	if normalizedSymbol == "" {
+		return side
+	}
+	return fmt.Sprintf("%s (%s)", side, normalizedSymbol)
+}
+
+func buildNotificationBody(payload model.PushoverNotificationRequest) string {
+	if strings.TrimSpace(payload.Body) != "" && payload.Price == 0 && payload.EntryScore == 0 && payload.ExitScore == 0 && strings.TrimSpace(payload.SignalTier) == "" {
+		return strings.TrimSpace(payload.Body)
+	}
+	lines := []string{formatNotificationPrice(payload.Price)}
+	side := notificationActionSide(payload.Action)
+	if side == "BUY" {
+		tier := formatSignalTier(payload.SignalTier)
+		if tier == "" {
+			tier = "Buy"
+		}
+		lines = append(lines, fmt.Sprintf("Type: %s", tier))
+		lines = append(lines, fmt.Sprintf("Conviction: %.0f%%", payload.EntryScore*100))
+	} else {
+		lines = append(lines, fmt.Sprintf("Conviction: %.0f%%", payload.ExitScore*100))
+	}
+	lines = append(lines, fmt.Sprintf("Time: %s", formatNotificationTimestamp(payload.CreatedAt)))
+	return strings.Join(lines, "\n")
+}
+
+func formatNotificationPrice(price float64) string {
+	if price <= 0 {
+		return "Price: n/a"
+	}
+	return fmt.Sprintf("Price: %.2f", price)
+}
+
+func notificationActionSide(action string) string {
+	normalized := strings.ToUpper(strings.TrimSpace(action))
+	switch {
+	case strings.HasPrefix(normalized, "BUY"):
+		return "BUY"
+	case strings.HasPrefix(normalized, "SELL"):
+		return "SELL"
+	default:
+		return normalized
+	}
+}
+
+func formatSignalTier(tier string) string {
+	normalized := strings.TrimSpace(tier)
+	if normalized == "" {
+		return ""
+	}
+	switch strings.ToLower(normalized) {
+	case "conviction_buy":
+		return "High Conviction Buy"
+	case "balanced_buy":
+		return "Medium Conviction Buy"
+	case "opportunistic_buy":
+		return "Lower Conviction Buy"
+	case "speculative_buy":
+		return "Very Low Conviction Buy"
+	default:
+		parts := strings.Fields(strings.ReplaceAll(strings.ToLower(normalized), "_", " "))
+		for index, part := range parts {
+			if part == "" {
+				continue
+			}
+			parts[index] = strings.ToUpper(part[:1]) + part[1:]
+		}
+		return strings.Join(parts, " ")
+	}
+}
+
+func formatNotificationTimestamp(createdAt time.Time) string {
+	location := loadNotificationTimeZone()
+	if createdAt.IsZero() {
+		return time.Now().In(location).Format("15:04:05 -0700")
+	}
+	return createdAt.In(location).Format("15:04:05 -0700")
+}
+
+func loadNotificationTimeZone() *time.Location {
+	timezoneName := strings.TrimSpace(os.Getenv("PUSHOVER_NOTIFICATION_TIMEZONE"))
+	if timezoneName == "" {
+		timezoneName = "America/New_York"
+	}
+	location, err := time.LoadLocation(timezoneName)
+	if err != nil {
+		return time.UTC
+	}
+	return location
 }
 
 func appendUniqueSymbol(symbols []string, symbol string) []string {

@@ -7,6 +7,7 @@ type PushoverNotificationRequest struct {
 	Symbol      string    `json:"symbol"`
 	Action      string    `json:"action"`
 	Reason      string    `json:"reason"`
+	Price       float64   `json:"price,omitempty"`
 	Title       string    `json:"title,omitempty"`
 	Body        string    `json:"body,omitempty"`
 	EntryScore  float64   `json:"entry_score"`
