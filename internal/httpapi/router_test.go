@@ -141,6 +141,7 @@ func TestSessionConfigEndpointReturnsSelectedVersion(t *testing.T) {
 }
 
 func TestSessionPushoverNotificationEndpointPublishesNotification(t *testing.T) {
+	t.Setenv("PUSHOVER_NOTIFICATION_TIMEZONE", "UTC")
 	st := store.NewMemoryStore()
 	pushover := &recordingNotifyPublisher{}
 	router := NewRouter(st, nil, pushover, slog.Default(), "IXIC")
@@ -168,8 +169,83 @@ func TestSessionPushoverNotificationEndpointPublishesNotification(t *testing.T) 
 	if pushover.event.Title != "BUY (NVDA)" {
 		t.Fatalf("expected BUY (NVDA) title, got %#v", pushover.event.Title)
 	}
-	if pushover.event.Body != "Price: 206.50\nType: Balanced Buy\nConviction: 82%\nTime: 09:30:00 EDT" {
+	if pushover.event.Body != "Price: 206.50\nType: Medium Conviction Buy\nConviction: 82%\nTime: 13:30:00 +0000" {
 		t.Fatalf("expected simplified body, got %#v", pushover.event.Body)
+	}
+}
+
+func TestSessionPushoverNotificationEndpointPublishesSellNotificationWithPriceFallback(t *testing.T) {
+	t.Setenv("PUSHOVER_NOTIFICATION_TIMEZONE", "UTC")
+	st := store.NewMemoryStore()
+	pushover := &recordingNotifyPublisher{}
+	router := NewRouter(st, nil, pushover, slog.Default(), "IXIC")
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/sessions/session-1/notifications/pushover",
+		strings.NewReader(`{"session_id":"session-1","symbol":"","action":"SELL","reason":"exit-qualified","entry_score":0.18,"exit_score":0.87,"signal_tier":"","event_type":"signal.emitted","window_id":"window-1","created_at":"2026-04-24T13:30:00Z"}`),
+	)
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d", rr.Code)
+	}
+	if pushover.calls != 1 {
+		t.Fatalf("expected one pushover publish call, got %d", pushover.calls)
+	}
+	if pushover.event.Title != "SELL" {
+		t.Fatalf("expected SELL title, got %#v", pushover.event.Title)
+	}
+	if pushover.event.Body != "Price: n/a\nConviction: 87%\nTime: 13:30:00 +0000" {
+		t.Fatalf("expected sell body with price fallback, got %#v", pushover.event.Body)
+	}
+}
+
+func TestSessionPushoverNotificationEndpointFallsBackToLegacyTitleAndBody(t *testing.T) {
+	t.Setenv("PUSHOVER_NOTIFICATION_TIMEZONE", "UTC")
+	st := store.NewMemoryStore()
+	pushover := &recordingNotifyPublisher{}
+	router := NewRouter(st, nil, pushover, slog.Default(), "IXIC")
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/sessions/session-1/notifications/pushover",
+		strings.NewReader(`{"session_id":"session-1","symbol":"NVDA","action":"BUY_ALERT","title":"Legacy Title","body":"Legacy Body","reason":"entry-qualified","entry_score":0,"exit_score":0,"event_type":"signal.emitted","window_id":"window-1","created_at":"2026-04-24T13:30:00Z"}`),
+	)
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d", rr.Code)
+	}
+	if pushover.event.Title != "Legacy Title" {
+		t.Fatalf("expected legacy title to be preserved, got %#v", pushover.event.Title)
+	}
+	if pushover.event.Body != "Legacy Body" {
+		t.Fatalf("expected legacy body to be preserved, got %#v", pushover.event.Body)
+	}
+}
+
+func TestNotificationFormattingCoversEdgeCases(t *testing.T) {
+	t.Setenv("PUSHOVER_NOTIFICATION_TIMEZONE", "UTC")
+
+	if got := buildNotificationTitle("", ""); got != "SIGNAL" {
+		t.Fatalf("expected SIGNAL fallback title, got %q", got)
+	}
+	if got := buildNotificationTitle("sell_alert", "nvda"); got != "SELL (NVDA)" {
+		t.Fatalf("expected SELL title, got %q", got)
+	}
+
+	body := buildNotificationBody(model.PushoverNotificationRequest{
+		Action:     "HOLD",
+		ExitScore:  0.87,
+		CreatedAt:  time.Date(2026, 4, 24, 13, 30, 0, 0, time.UTC),
+		Price:      0,
+		SignalTier: "",
+	})
+	if body != "Price: n/a\nConviction: 87%\nTime: 13:30:00 +0000" {
+		t.Fatalf("expected stable fallback body, got %#v", body)
 	}
 }
 
