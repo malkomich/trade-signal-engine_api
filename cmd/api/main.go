@@ -8,10 +8,12 @@ import (
 	"os"
 	"time"
 
+	"trade-signal-engine-api/internal/alpaca"
 	"trade-signal-engine-api/internal/config"
 	"trade-signal-engine-api/internal/httpapi"
 	"trade-signal-engine-api/internal/notify"
 	"trade-signal-engine-api/internal/store"
+	"trade-signal-engine-api/internal/trading"
 )
 
 func main() {
@@ -63,10 +65,24 @@ func main() {
 	} else {
 		logger.Info("pushover notifications disabled", "reason", "missing user key or api token")
 	}
+	var tradingService *trading.Service
+	if cfg.AlpacaAPIKeyID != "" && cfg.AlpacaSecretKey != "" {
+		alpacaClient := alpaca.NewClient(
+			cfg.AlpacaAPIKeyID,
+			cfg.AlpacaSecretKey,
+			cfg.AlpacaPaperTradingURL,
+			cfg.AlpacaLiveTradingURL,
+			10*time.Second,
+		)
+		tradingService = trading.NewService(alpacaClient)
+		logger.Info("alpaca trading enabled", "paper_url", cfg.AlpacaPaperTradingURL, "live_url", cfg.AlpacaLiveTradingURL)
+	} else {
+		logger.Info("alpaca trading disabled", "reason", "missing api key or secret")
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewRouter(st, notifier, pushoverNotifier, logger, cfg.DefaultBenchmarkSymbol),
+		Handler:           httpapi.NewRouter(st, notifier, pushoverNotifier, logger, cfg.DefaultBenchmarkSymbol, tradingService),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -75,6 +91,7 @@ func main() {
 		"addr", cfg.HTTPAddr,
 		"mode", cfg.StoreBackend,
 		"pushover_enabled", pushoverNotifier != nil,
+		"alpaca_enabled", tradingService != nil,
 	)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Error("server stopped unexpectedly", "error", err)

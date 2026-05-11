@@ -691,3 +691,58 @@ func TestMarketSnapshotsUpsertByID(t *testing.T) {
 		t.Fatalf("expected latest snapshot to replace previous value, got %v", got)
 	}
 }
+
+func TestSessionTradingEndpointReturnsDefaultsWithoutTradingService(t *testing.T) {
+	st := store.NewMemoryStore()
+	if err := st.UpsertSession(context.Background(), model.SessionSummary{ID: "session-1"}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/trading", nil)
+	rr := httptest.NewRecorder()
+
+	NewRouter(st, nil, nil, slog.Default(), "IXIC").ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected valid json body: %v", err)
+	}
+	if got := payload["trading_mode"]; got != "paper" {
+		t.Fatalf("expected default paper mode, got %v", got)
+	}
+	if got := payload["trading_stop_loss_percent"]; got != 0.1 {
+		t.Fatalf("expected default stop loss percent 0.1, got %v", got)
+	}
+	allocations, ok := payload["trading_allocations"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected trading_allocations map, got %#v", payload["trading_allocations"])
+	}
+	if got := allocations["conviction_buy"]; got != float64(1000) {
+		t.Fatalf("expected conviction_buy allocation 1000, got %v", got)
+	}
+	if payload["trading_account"] != nil {
+		t.Fatalf("expected nil trading_account without trading service, got %#v", payload["trading_account"])
+	}
+}
+
+func TestRouterAddsCORSHeadersForPreflightRequests(t *testing.T) {
+	req := httptest.NewRequest(http.MethodOptions, "/v1/sessions/session-1/trading", nil)
+	req.Header.Set("Origin", "https://admin.example.test")
+	req.Header.Set("Access-Control-Request-Method", http.MethodPut)
+	rr := httptest.NewRecorder()
+
+	NewRouter(store.NewMemoryStore(), nil, nil, slog.Default(), "IXIC").ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204, got %d", rr.Code)
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "https://admin.example.test" {
+		t.Fatalf("expected allow-origin header, got %q", got)
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Methods"); got == "" {
+		t.Fatalf("expected allow-methods header")
+	}
+}

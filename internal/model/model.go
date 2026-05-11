@@ -123,8 +123,59 @@ type SessionSummary struct {
 	LastDecisionAt      time.Time                  `json:"last_decision_at"`
 	Symbols             []string                   `json:"symbols"`
 	ConfigVersion       string                     `json:"config_version"`
+	TradingMode         string                     `json:"trading_mode,omitempty"`
+	TradingAllocations  map[string]float64         `json:"trading_allocations,omitempty"`
+	TradingStopLossPct  float64                    `json:"trading_stop_loss_percent,omitempty"`
+	TradingAccount      *TradingAccountSnapshot    `json:"trading_account,omitempty"`
+	TradingUpdatedAt    time.Time                  `json:"trading_updated_at,omitempty"`
 	OptimizationSummary *WindowOptimizationSummary `json:"optimization_summary,omitempty"`
 	UpdatedAt           time.Time                  `json:"updated_at"`
+}
+
+type TradingAccountSnapshot struct {
+	Mode           string    `json:"mode"`
+	Status         string    `json:"status"`
+	BuyingPower    float64   `json:"buying_power"`
+	Cash           float64   `json:"cash"`
+	Equity         float64   `json:"equity"`
+	PortfolioValue float64   `json:"portfolio_value"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type TradingSettingsRequest struct {
+	SessionID       string             `json:"session_id"`
+	Mode            string             `json:"mode"`
+	Allocations     map[string]float64 `json:"allocations"`
+	StopLossPercent float64            `json:"stop_loss_percent"`
+}
+
+type TradingExecutionRequest struct {
+	SessionID  string    `json:"session_id"`
+	Symbol     string    `json:"symbol"`
+	Action     string    `json:"action"`
+	Price      float64   `json:"price"`
+	SignalTier string    `json:"signal_tier,omitempty"`
+	EntryScore float64   `json:"entry_score"`
+	ExitScore  float64   `json:"exit_score"`
+	WindowID   string    `json:"window_id,omitempty"`
+	Reason     string    `json:"reason,omitempty"`
+	CreatedAt  time.Time `json:"created_at,omitempty"`
+}
+
+type TradingExecutionResult struct {
+	Status        string                  `json:"status"`
+	SessionID     string                  `json:"session_id"`
+	Symbol        string                  `json:"symbol"`
+	Action        string                  `json:"action"`
+	Mode          string                  `json:"mode"`
+	OrderID       string                  `json:"order_id,omitempty"`
+	Side          string                  `json:"side,omitempty"`
+	Quantity      float64                 `json:"quantity,omitempty"`
+	Notional      float64                 `json:"notional,omitempty"`
+	StopLossPrice float64                 `json:"stop_loss_price,omitempty"`
+	Account       *TradingAccountSnapshot `json:"account,omitempty"`
+	SubmittedAt   time.Time               `json:"submitted_at,omitempty"`
+	Details       map[string]any          `json:"details,omitempty"`
 }
 
 type TradeWindow struct {

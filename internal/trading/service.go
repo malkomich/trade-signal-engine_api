@@ -1,0 +1,279 @@
+package trading
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+
+	"trade-signal-engine-api/internal/alpaca"
+	"trade-signal-engine-api/internal/model"
+)
+
+const (
+	DefaultTradingMode        = "paper"
+	DefaultTradingAllocation  = 1000.0
+	DefaultTradingStopLossPct = 0.10
+	maxTradingStopLossPct     = 10.0
+	orderFillPollInterval     = 750 * time.Millisecond
+	orderFillTimeout          = 12 * time.Second
+)
+
+type Service struct {
+	client *alpaca.Client
+}
+
+func NewService(client *alpaca.Client) *Service {
+	if client == nil {
+		return nil
+	}
+	return &Service{client: client}
+}
+
+func (s *Service) Enabled() bool {
+	return s != nil && s.client != nil
+}
+
+func (s *Service) CurrentAccount(ctx context.Context, mode string) (model.TradingAccountSnapshot, error) {
+	if !s.Enabled() {
+		return model.TradingAccountSnapshot{}, errors.New("alpaca trading is not configured")
+	}
+	mode = normalizeMode(mode)
+	if mode == "" {
+		mode = DefaultTradingMode
+	}
+	account, err := s.client.GetAccount(ctx, mode)
+	if err != nil {
+		return model.TradingAccountSnapshot{}, err
+	}
+	return model.TradingAccountSnapshot{
+		Mode:           mode,
+		Status:         account.Status,
+		BuyingPower:    parseFloat(account.BuyingPower),
+		Cash:           parseFloat(account.Cash),
+		Equity:         parseFloat(account.Equity),
+		PortfolioValue: parseFloat(account.PortfolioValue),
+		UpdatedAt:      time.Now().UTC(),
+	}, nil
+}
+
+func (s *Service) Execute(ctx context.Context, session model.SessionSummary, request model.TradingExecutionRequest) (model.TradingExecutionResult, error) {
+	if !s.Enabled() {
+		return model.TradingExecutionResult{}, errors.New("alpaca trading is not configured")
+	}
+	mode := normalizeMode(session.TradingMode)
+	if mode == "" {
+		mode = DefaultTradingMode
+	}
+	settings := normalizeTradingSettings(session)
+	account, err := s.CurrentAccount(ctx, mode)
+	if err != nil {
+		return model.TradingExecutionResult{}, err
+	}
+
+	switch strings.ToUpper(strings.TrimSpace(request.Action)) {
+	case "BUY_ALERT", "BUY":
+		return s.executeBuy(ctx, session.ID, mode, settings, request, account)
+	case "SELL_ALERT", "SELL":
+		return s.executeSell(ctx, session.ID, mode, request, account)
+	default:
+		return model.TradingExecutionResult{}, fmt.Errorf("unsupported trading action %q", request.Action)
+	}
+}
+
+func (s *Service) executeBuy(
+	ctx context.Context,
+	sessionID string,
+	mode string,
+	settings model.SessionSummary,
+	request model.TradingExecutionRequest,
+	account model.TradingAccountSnapshot,
+) (model.TradingExecutionResult, error) {
+	allocation := allocationForTier(settings.TradingAllocations, request.SignalTier)
+	if allocation <= 0 {
+		allocation = DefaultTradingAllocation
+	}
+	if account.BuyingPower > 0 {
+		allocation = math.Min(allocation, account.BuyingPower)
+	}
+	order, err := s.client.SubmitOrder(ctx, mode, alpaca.OrderRequest{
+		Symbol:      strings.ToUpper(strings.TrimSpace(request.Symbol)),
+		Side:        "buy",
+		Type:        "market",
+		TimeInForce: "day",
+		Notional:    float64Ptr(allocation),
+	})
+	if err != nil {
+		return model.TradingExecutionResult{}, err
+	}
+
+	filledOrder, err := s.waitForFilledOrder(ctx, mode, order.ID)
+	if err != nil {
+		return model.TradingExecutionResult{}, err
+	}
+	filledQty := parseFloat(filledOrder.FilledQty)
+	if filledQty <= 0 {
+		filledQty = parseFloat(filledOrder.Qty)
+	}
+	filledPrice := parseFloat(filledOrder.FilledAvgPrice)
+	if filledPrice <= 0 {
+		filledPrice = request.Price
+	}
+	stopLossPct := normalizeStopLossPercent(settings.TradingStopLossPct)
+	stopLossPrice := 0.0
+	if filledPrice > 0 && stopLossPct > 0 {
+		stopLossPrice = filledPrice * (1.0 - (stopLossPct / 100.0))
+	}
+	stopOrder := alpaca.Order{}
+	if filledQty > 0 && stopLossPrice > 0 {
+		stopOrder, err = s.client.SubmitOrder(ctx, mode, alpaca.OrderRequest{
+			Symbol:      strings.ToUpper(strings.TrimSpace(request.Symbol)),
+			Side:        "sell",
+			Type:        "stop",
+			TimeInForce: "gtc",
+			Qty:         float64Ptr(filledQty),
+			StopPrice:   float64Ptr(stopLossPrice),
+		})
+		if err != nil {
+			return model.TradingExecutionResult{}, err
+		}
+	}
+
+	return model.TradingExecutionResult{
+		Status:        "submitted",
+		SessionID:     sessionID,
+		Symbol:        strings.ToUpper(strings.TrimSpace(request.Symbol)),
+		Action:        strings.ToUpper(strings.TrimSpace(request.Action)),
+		Mode:          mode,
+		OrderID:       order.ID,
+		Side:          order.Side,
+		Quantity:      filledQty,
+		Notional:      allocation,
+		StopLossPrice: stopLossPrice,
+		Account:       &account,
+		SubmittedAt:   time.Now().UTC(),
+		Details: map[string]any{
+			"filled_order_status": filledOrder.Status,
+			"stop_order_id":       stopOrder.ID,
+		},
+	}, nil
+}
+
+func (s *Service) executeSell(
+	ctx context.Context,
+	sessionID string,
+	mode string,
+	request model.TradingExecutionRequest,
+	account model.TradingAccountSnapshot,
+) (model.TradingExecutionResult, error) {
+	order, err := s.client.ClosePosition(ctx, mode, strings.ToUpper(strings.TrimSpace(request.Symbol)))
+	if err != nil {
+		return model.TradingExecutionResult{}, err
+	}
+	return model.TradingExecutionResult{
+		Status:      "submitted",
+		SessionID:   sessionID,
+		Symbol:      strings.ToUpper(strings.TrimSpace(request.Symbol)),
+		Action:      strings.ToUpper(strings.TrimSpace(request.Action)),
+		Mode:        mode,
+		OrderID:     order.ID,
+		Side:        order.Side,
+		Account:     &account,
+		SubmittedAt: time.Now().UTC(),
+	}, nil
+}
+
+func (s *Service) waitForFilledOrder(ctx context.Context, mode, orderID string) (alpaca.Order, error) {
+	deadline := time.NewTimer(orderFillTimeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(orderFillPollInterval)
+	defer ticker.Stop()
+	for {
+		order, err := s.client.GetOrder(ctx, mode, orderID)
+		if err != nil {
+			return alpaca.Order{}, err
+		}
+		status := strings.ToLower(strings.TrimSpace(order.Status))
+		if status == "filled" || status == "partially_filled" || status == "done_for_day" {
+			return order, nil
+		}
+		select {
+		case <-ctx.Done():
+			return alpaca.Order{}, ctx.Err()
+		case <-deadline.C:
+			return order, nil
+		case <-ticker.C:
+		}
+	}
+}
+
+func normalizeTradingSettings(session model.SessionSummary) model.SessionSummary {
+	if normalizeMode(session.TradingMode) == "" {
+		session.TradingMode = DefaultTradingMode
+	}
+	if len(session.TradingAllocations) == 0 {
+		session.TradingAllocations = DefaultTradingAllocations()
+	}
+	if session.TradingStopLossPct <= 0 {
+		session.TradingStopLossPct = DefaultTradingStopLossPct
+	}
+	return session
+}
+
+func normalizeMode(mode string) string {
+	normalized := strings.ToLower(strings.TrimSpace(mode))
+	switch normalized {
+	case "paper", "live":
+		return normalized
+	default:
+		return ""
+	}
+}
+
+func normalizeStopLossPercent(value float64) float64 {
+	if value <= 0 {
+		return DefaultTradingStopLossPct
+	}
+	if value > maxTradingStopLossPct {
+		return maxTradingStopLossPct
+	}
+	return value
+}
+
+func allocationForTier(allocations map[string]float64, tier string) float64 {
+	if len(allocations) == 0 {
+		return 0
+	}
+	normalizedTier := strings.ToLower(strings.TrimSpace(tier))
+	if normalizedTier == "" {
+		return 0
+	}
+	if value, ok := allocations[normalizedTier]; ok {
+		return value
+	}
+	return 0
+}
+
+func DefaultTradingAllocations() map[string]float64 {
+	return map[string]float64{
+		"conviction_buy":    DefaultTradingAllocation,
+		"balanced_buy":      DefaultTradingAllocation,
+		"opportunistic_buy": DefaultTradingAllocation,
+		"speculative_buy":   DefaultTradingAllocation,
+	}
+}
+
+func float64Ptr(value float64) *float64 {
+	if value <= 0 {
+		return nil
+	}
+	return &value
+}
+
+func parseFloat(value string) float64 {
+	parsed, _ := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	return parsed
+}
