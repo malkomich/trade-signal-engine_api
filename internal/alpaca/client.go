@@ -13,6 +13,15 @@ import (
 	"time"
 )
 
+const (
+	orderSideBuy    = "buy"
+	orderSideSell   = "sell"
+	orderTypeMarket = "market"
+	orderTypeStop   = "stop"
+	timeInForceDay  = "day"
+	timeInForceGtc  = "gtc"
+)
+
 type Client struct {
 	paperAPIKeyID string
 	paperSecret   string
@@ -199,9 +208,7 @@ func (c *Client) do(ctx context.Context, method, mode, path string, payload any)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
+	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err

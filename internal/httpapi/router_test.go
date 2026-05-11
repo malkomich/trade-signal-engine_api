@@ -11,9 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"trade-signal-engine-api/internal/alpaca"
 	"trade-signal-engine-api/internal/model"
 	"trade-signal-engine-api/internal/notify"
 	"trade-signal-engine-api/internal/store"
+	"trade-signal-engine-api/internal/trading"
 )
 
 var rtdbSafeKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_:\-]+$`)
@@ -57,7 +59,7 @@ func TestRootEndpointReturnsServiceMetadata(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
 
-	NewRouter(nil, nil, nil, slog.Default(), "IXIC", nil, nil).ServeHTTP(rr, req)
+	NewRouter(nil, nil, nil, slog.Default(), "IXIC", nil).ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -119,7 +121,7 @@ func TestSessionConfigEndpointReturnsSelectedVersion(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/config", nil)
 	rr := httptest.NewRecorder()
 
-	NewRouter(st, nil, nil, slog.Default(), "IXIC", nil, nil).ServeHTTP(rr, req)
+	NewRouter(st, nil, nil, slog.Default(), "IXIC", nil).ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -144,7 +146,7 @@ func TestSessionPushoverNotificationEndpointPublishesNotification(t *testing.T) 
 	t.Setenv("PUSHOVER_NOTIFICATION_TIMEZONE", "UTC")
 	st := store.NewMemoryStore()
 	pushover := &recordingNotifyPublisher{}
-	router := NewRouter(st, nil, pushover, slog.Default(), "IXIC", nil, nil)
+	router := NewRouter(st, nil, pushover, slog.Default(), "IXIC", nil)
 	req := httptest.NewRequest(
 		http.MethodPost,
 		"/v1/sessions/session-1/notifications/pushover",
@@ -178,7 +180,7 @@ func TestSessionPushoverNotificationEndpointPublishesSellNotificationWithPriceFa
 	t.Setenv("PUSHOVER_NOTIFICATION_TIMEZONE", "UTC")
 	st := store.NewMemoryStore()
 	pushover := &recordingNotifyPublisher{}
-	router := NewRouter(st, nil, pushover, slog.Default(), "IXIC", nil, nil)
+	router := NewRouter(st, nil, pushover, slog.Default(), "IXIC", nil)
 	req := httptest.NewRequest(
 		http.MethodPost,
 		"/v1/sessions/session-1/notifications/pushover",
@@ -206,7 +208,7 @@ func TestSessionPushoverNotificationEndpointFallsBackToLegacyTitleAndBody(t *tes
 	t.Setenv("PUSHOVER_NOTIFICATION_TIMEZONE", "UTC")
 	st := store.NewMemoryStore()
 	pushover := &recordingNotifyPublisher{}
-	router := NewRouter(st, nil, pushover, slog.Default(), "IXIC", nil, nil)
+	router := NewRouter(st, nil, pushover, slog.Default(), "IXIC", nil)
 	req := httptest.NewRequest(
 		http.MethodPost,
 		"/v1/sessions/session-1/notifications/pushover",
@@ -268,7 +270,7 @@ func TestSessionConfigEndpointIncludesDefaultOptimizationSummaryWithoutHistory(t
 	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/config", nil)
 	rr := httptest.NewRecorder()
 
-	NewRouter(st, nil, nil, slog.Default(), "IXIC", nil, nil).ServeHTTP(rr, req)
+	NewRouter(st, nil, nil, slog.Default(), "IXIC", nil).ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -336,7 +338,7 @@ func TestUnknownPathReturnsNotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/missing", nil)
 	rr := httptest.NewRecorder()
 
-	NewRouter(nil, nil, nil, slog.Default(), "IXIC", nil, nil).ServeHTTP(rr, req)
+	NewRouter(nil, nil, nil, slog.Default(), "IXIC", nil).ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("expected status 404, got %d", rr.Code)
@@ -349,7 +351,7 @@ func TestAcceptAndExitUpdateSessionStateFromLocalWindowState(t *testing.T) {
 		t.Fatalf("seed session: %v", err)
 	}
 
-	router := NewRouter(st, nil, nil, slog.Default(), "IXIC", nil, nil)
+	router := NewRouter(st, nil, nil, slog.Default(), "IXIC", nil)
 
 	acceptReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/accept", strings.NewReader(`{"symbol":"NVDA","entry_score":0.82,"exit_score":0.17}`))
 	acceptRR := httptest.NewRecorder()
@@ -417,7 +419,7 @@ func TestAcceptAndMarketSnapshotSanitizeRTDBUnsafeSymbols(t *testing.T) {
 		t.Fatalf("seed session: %v", err)
 	}
 
-	router := NewRouter(st, nil, nil, slog.Default(), "IXIC", nil, nil)
+	router := NewRouter(st, nil, nil, slog.Default(), "IXIC", nil)
 
 	acceptReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/accept", strings.NewReader(`{"symbol":"BRK.B","entry_score":0.82,"exit_score":0.17}`))
 	acceptRR := httptest.NewRecorder()
@@ -460,7 +462,7 @@ func TestExitWithoutOpenWindowReturnsNotFound(t *testing.T) {
 		t.Fatalf("seed session: %v", err)
 	}
 
-	router := NewRouter(st, nil, nil, slog.Default(), "IXIC", nil, nil)
+	router := NewRouter(st, nil, nil, slog.Default(), "IXIC", nil)
 	exitReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/exit", strings.NewReader(`{"symbol":"NVDA","entry_score":0.82,"exit_score":0.79}`))
 	exitRR := httptest.NewRecorder()
 	router.ServeHTTP(exitRR, exitReq)
@@ -479,7 +481,7 @@ func TestExitWithoutOpenWindowReturnsNotFound(t *testing.T) {
 
 func TestMarketSnapshotsRoundTrip(t *testing.T) {
 	st := store.NewMemoryStore()
-	router := NewRouter(st, nil, nil, slog.Default(), "QQQ", nil, nil)
+	router := NewRouter(st, nil, nil, slog.Default(), "QQQ", nil)
 
 	postReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"BRK.B","session_id":"session-1","timestamp":"2024-04-22T13:30:00Z","timeframe":"5m","close":123.45,"event_type":"market.snapshot"}`))
 	postRR := httptest.NewRecorder()
@@ -521,7 +523,7 @@ func TestMarketSnapshotsRoundTrip(t *testing.T) {
 
 func TestMarketSnapshotsRoundTripIncludesNewIndicators(t *testing.T) {
 	st := store.NewMemoryStore()
-	router := NewRouter(st, nil, nil, slog.Default(), "QQQ", nil, nil)
+	router := NewRouter(st, nil, nil, slog.Default(), "QQQ", nil)
 
 	postReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"AAPL","session_id":"session-1","timestamp":"2024-04-22T13:30:00Z","close":123.45,"bollinger_middle":120.0,"bollinger_upper":124.0,"bollinger_lower":118.0,"obv":23456.0,"relative_volume":1.3,"volume_profile":0.21,"event_type":"market.snapshot"}`))
 	postRR := httptest.NewRecorder()
@@ -599,7 +601,7 @@ func TestOptimizationSnapshotProfileIncludesNewIndicatorDeltas(t *testing.T) {
 
 func TestDecisionsEndpointPersistsSignalTier(t *testing.T) {
 	st := store.NewMemoryStore()
-	router := NewRouter(st, nil, nil, slog.Default(), "QQQ", nil, nil)
+	router := NewRouter(st, nil, nil, slog.Default(), "QQQ", nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/decisions", strings.NewReader(`{"session_id":"session-1","symbol":"AAPL","action":"BUY_ALERT","reason":"entry-qualified","entry_score":0.72,"exit_score":0.31,"signal_tier":"balanced_buy"}`))
 	rr := httptest.NewRecorder()
@@ -631,7 +633,7 @@ func TestDecisionsEndpointPersistsSignalTier(t *testing.T) {
 
 func TestMarketSnapshotsValidatePayloadAndSessionConsistency(t *testing.T) {
 	st := store.NewMemoryStore()
-	router := NewRouter(st, nil, nil, slog.Default(), "IXIC", nil, nil)
+	router := NewRouter(st, nil, nil, slog.Default(), "IXIC", nil)
 
 	mismatchReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"symbol":"NVDA","session_id":"session-2","timestamp":"2024-04-22T13:30:00Z"}`))
 	mismatchRR := httptest.NewRecorder()
@@ -664,7 +666,7 @@ func TestMarketSnapshotsValidatePayloadAndSessionConsistency(t *testing.T) {
 
 func TestMarketSnapshotsUpsertByID(t *testing.T) {
 	st := store.NewMemoryStore()
-	router := NewRouter(st, nil, nil, slog.Default(), "IXIC", nil, nil)
+	router := NewRouter(st, nil, nil, slog.Default(), "IXIC", nil)
 
 	firstReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/market-snapshots", strings.NewReader(`{"id":"snapshot-1","symbol":"NVDA","session_id":"session-1","timestamp":"2024-04-22T13:30:00Z","close":123.45}`))
 	firstRR := httptest.NewRecorder()
@@ -701,7 +703,7 @@ func TestSessionTradingEndpointReturnsDefaultsWithoutTradingService(t *testing.T
 	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/trading", nil)
 	rr := httptest.NewRecorder()
 
-	NewRouter(st, nil, nil, slog.Default(), "IXIC", []string{"https://admin.example.test"}, nil).ServeHTTP(rr, req)
+	NewRouter(st, nil, nil, slog.Default(), "IXIC", nil).ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -728,13 +730,70 @@ func TestSessionTradingEndpointReturnsDefaultsWithoutTradingService(t *testing.T
 	}
 }
 
+func TestSessionTradingAccountEndpointReturnsSelectedModeSnapshot(t *testing.T) {
+	st := store.NewMemoryStore()
+	if err := st.UpsertSession(context.Background(), model.SessionSummary{ID: "session-1", TradingMode: "paper"}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodGet || req.URL.Path != "/live/v2/account" {
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(alpaca.Account{
+			Status:         "ACTIVE",
+			BuyingPower:    "1234.56",
+			Cash:           "987.65",
+			Equity:         "2222.22",
+			PortfolioValue: "3333.33",
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	service := trading.NewService(alpaca.NewClient(
+		"paper-key",
+		"paper-secret",
+		"live-key",
+		"live-secret",
+		server.URL+"/paper",
+		server.URL+"/live",
+		5*time.Second,
+	))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/trading/account?mode=live", nil)
+	rr := httptest.NewRecorder()
+
+	NewRouter(st, nil, nil, slog.Default(), "IXIC", nil, service).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected valid json body: %v", err)
+	}
+	if got := payload["trading_mode"]; got != "live" {
+		t.Fatalf("expected live trading mode, got %v", got)
+	}
+	account, ok := payload["trading_account"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected trading_account map, got %#v", payload["trading_account"])
+	}
+	if got := account["status"]; got != "ACTIVE" {
+		t.Fatalf("expected active account, got %v", got)
+	}
+	if got := account["buying_power"]; got != 1234.56 {
+		t.Fatalf("expected buying_power 1234.56, got %v", got)
+	}
+}
+
 func TestRouterAddsCORSHeadersForPreflightRequests(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/v1/sessions/session-1/trading", nil)
 	req.Header.Set("Origin", "https://admin.example.test")
 	req.Header.Set("Access-Control-Request-Method", http.MethodPut)
 	rr := httptest.NewRecorder()
 
-	NewRouter(store.NewMemoryStore(), nil, nil, slog.Default(), "IXIC", []string{"https://admin.example.test"}, nil).ServeHTTP(rr, req)
+	NewRouter(store.NewMemoryStore(), nil, nil, slog.Default(), "IXIC", nil).ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected status 204, got %d", rr.Code)

@@ -35,12 +35,16 @@ type Router struct {
 	allowedOrigins         []string
 }
 
-func NewRouter(st store.Store, notifier notify.Publisher, pushoverNotifier notify.Publisher, logger *slog.Logger, defaultBenchmarkSymbol string, allowedOrigins []string, tradingService *trading.Service) http.Handler {
+func NewRouter(st store.Store, notifier notify.Publisher, pushoverNotifier notify.Publisher, logger *slog.Logger, defaultBenchmarkSymbol string, allowedOrigins []string, tradingService ...*trading.Service) http.Handler {
+	var tradingSvc *trading.Service
+	if len(tradingService) > 0 {
+		tradingSvc = tradingService[0]
+	}
 	r := &Router{
 		store:                  st,
 		notifier:               notifier,
 		pushoverNotifier:       pushoverNotifier,
-		tradingService:         tradingService,
+		tradingService:         tradingSvc,
 		logger:                 logger,
 		defaultBenchmarkSymbol: defaultBenchmarkSymbol,
 		allowedOrigins:         normalizeOrigins(allowedOrigins),
@@ -133,6 +137,7 @@ func (r *Router) root(w http.ResponseWriter, _ *http.Request) {
 			"/v1/sessions/{id}/config",
 			"/v1/sessions/{id}/market-snapshots",
 			"/v1/sessions/{id}/trading",
+			"/v1/sessions/{id}/trading/account",
 			"/v1/sessions/{id}/analytics",
 			"/v1/sessions/{id}/analytics/export",
 			"/v1/sessions/{id}/accept",
@@ -238,6 +243,10 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 			r.sessionTradingUpdate(w, req, sessionID)
 			return
 		}
+	}
+	if len(parts) == 3 && parts[1] == "trading" && parts[2] == "account" && req.Method == http.MethodGet {
+		r.sessionTradingAccount(w, req, sessionID)
+		return
 	}
 	if len(parts) == 3 && parts[1] == "trading" && parts[2] == "execute" && req.Method == http.MethodPost {
 		r.sessionTradingExecute(w, req, sessionID)
@@ -570,15 +579,6 @@ func (r *Router) sessionPushoverNotification(w http.ResponseWriter, req *http.Re
 		writeError(w, http.StatusBadRequest, "symbol and action are required")
 		return
 	}
-	action := strings.ToUpper(strings.TrimSpace(payload.Action))
-	if !isSupportedTradingAction(action) {
-		writeError(w, http.StatusBadRequest, "unsupported trading action")
-		return
-	}
-	if strings.HasPrefix(action, "BUY") && payload.Price <= 0 {
-		writeError(w, http.StatusBadRequest, "price is required for buy executions")
-		return
-	}
 	if payload.CreatedAt.IsZero() {
 		payload.CreatedAt = time.Now().UTC()
 	}
@@ -690,6 +690,49 @@ func (r *Router) sessionTrading(w http.ResponseWriter, req *http.Request, sessio
 	})
 }
 
+func (r *Router) sessionTradingAccount(w http.ResponseWriter, req *http.Request, sessionID string) {
+	session, err := r.store.GetSession(req.Context(), sessionID)
+	if err == store.ErrNotFound {
+		writeError(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load session")
+		return
+	}
+	if r.tradingService == nil {
+		writeError(w, http.StatusServiceUnavailable, "alpaca trading is not configured")
+		return
+	}
+	mode := strings.ToLower(strings.TrimSpace(req.URL.Query().Get("mode")))
+	if mode == "" {
+		mode = session.TradingMode
+	}
+	if mode == "" {
+		mode = trading.DefaultTradingMode
+	}
+	account, accountErr := r.tradingService.CurrentAccount(req.Context(), mode)
+	if accountErr != nil {
+		if r.logger != nil {
+			r.logger.Warn("alpaca account refresh failed", "session_id", sessionID, "mode", mode, "error", accountErr)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"session_id":            sessionID,
+			"trading_mode":          mode,
+			"trading_account":       nil,
+			"trading_account_error": accountErr.Error(),
+			"trading_updated_at":    nil,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"session_id":         sessionID,
+		"trading_mode":       mode,
+		"trading_account":    account,
+		"trading_updated_at": account.UpdatedAt,
+	})
+}
+
 func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, sessionID string) {
 	var payload model.TradingSettingsRequest
 	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
@@ -778,15 +821,6 @@ func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request,
 	}
 	if payload.Symbol == "" || payload.Action == "" {
 		writeError(w, http.StatusBadRequest, "symbol and action are required")
-		return
-	}
-	action := strings.ToUpper(strings.TrimSpace(payload.Action))
-	if !isSupportedTradingAction(action) {
-		writeError(w, http.StatusBadRequest, "unsupported trading action")
-		return
-	}
-	if strings.HasPrefix(action, "BUY") && payload.Price <= 0 {
-		writeError(w, http.StatusBadRequest, "price is required for buy executions")
 		return
 	}
 	if payload.CreatedAt.IsZero() {
