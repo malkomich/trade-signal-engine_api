@@ -19,7 +19,7 @@ const (
 	DefaultTradingStopLossPct = 0.10
 	maxTradingStopLossPct     = 10.0
 	orderFillPollInterval     = 750 * time.Millisecond
-	orderFillTimeout          = 30 * time.Second
+	orderFillTimeout          = 12 * time.Second
 )
 
 type Service struct {
@@ -52,10 +52,10 @@ func (s *Service) CurrentAccount(ctx context.Context, mode string) (model.Tradin
 	return model.TradingAccountSnapshot{
 		Mode:           mode,
 		Status:         account.Status,
-		BuyingPower:    parseFloat(account.BuyingPower, 0),
-		Cash:           parseFloat(account.Cash, 0),
-		Equity:         parseFloat(account.Equity, 0),
-		PortfolioValue: parseFloat(account.PortfolioValue, 0),
+		BuyingPower:    parseFloat(account.BuyingPower),
+		Cash:           parseFloat(account.Cash),
+		Equity:         parseFloat(account.Equity),
+		PortfolioValue: parseFloat(account.PortfolioValue),
 		UpdatedAt:      time.Now().UTC(),
 	}, nil
 }
@@ -69,19 +69,15 @@ func (s *Service) Execute(ctx context.Context, session model.SessionSummary, req
 		mode = DefaultTradingMode
 	}
 	settings := normalizeTradingSettings(session)
+	account, err := s.CurrentAccount(ctx, mode)
+	if err != nil {
+		return model.TradingExecutionResult{}, err
+	}
 
 	switch strings.ToUpper(strings.TrimSpace(request.Action)) {
 	case "BUY_ALERT", "BUY":
-		account, err := s.CurrentAccount(ctx, mode)
-		if err != nil {
-			return model.TradingExecutionResult{}, err
-		}
 		return s.executeBuy(ctx, session.ID, mode, settings, request, account)
 	case "SELL_ALERT", "SELL":
-		account := model.TradingAccountSnapshot{Mode: mode}
-		if currentAccount, err := s.CurrentAccount(ctx, mode); err == nil {
-			account = currentAccount
-		}
 		return s.executeSell(ctx, session.ID, mode, request, account)
 	default:
 		return model.TradingExecutionResult{}, fmt.Errorf("unsupported trading action %q", request.Action)
@@ -118,18 +114,18 @@ func (s *Service) executeBuy(
 	if err != nil {
 		return model.TradingExecutionResult{}, err
 	}
-	filledQty := parseFloat(filledOrder.FilledQty, 0)
+	filledQty := parseFloat(filledOrder.FilledQty)
 	if filledQty <= 0 {
-		filledQty = parseFloat(filledOrder.Qty, 0)
+		filledQty = parseFloat(filledOrder.Qty)
 	}
-	filledPrice := parseFloat(filledOrder.FilledAvgPrice, 0)
-	if filledQty <= 0 || filledPrice <= 0 {
-		return model.TradingExecutionResult{}, fmt.Errorf("alpaca buy order %s did not return a filled quantity and price", order.ID)
+	filledPrice := parseFloat(filledOrder.FilledAvgPrice)
+	if filledPrice <= 0 {
+		filledPrice = request.Price
 	}
 	stopLossPct := normalizeStopLossPercent(settings.TradingStopLossPct)
 	stopLossPrice := 0.0
 	if filledPrice > 0 && stopLossPct > 0 {
-		stopLossPrice = roundStopPrice(filledPrice * (1.0 - (stopLossPct / 100.0)))
+		stopLossPrice = filledPrice * (1.0 - (stopLossPct / 100.0))
 	}
 	stopOrder := alpaca.Order{}
 	if filledQty > 0 && stopLossPrice > 0 {
@@ -137,17 +133,13 @@ func (s *Service) executeBuy(
 			Symbol:      strings.ToUpper(strings.TrimSpace(request.Symbol)),
 			Side:        "sell",
 			Type:        "stop",
-			TimeInForce: stopLossTimeInForce(filledQty),
+			TimeInForce: "gtc",
 			Qty:         float64Ptr(filledQty),
 			StopPrice:   float64Ptr(stopLossPrice),
 		})
 		if err != nil {
 			return model.TradingExecutionResult{}, err
 		}
-	}
-	updatedAccount, err := s.CurrentAccount(ctx, mode)
-	if err == nil {
-		account = updatedAccount
 	}
 
 	return model.TradingExecutionResult{
@@ -177,18 +169,14 @@ func (s *Service) executeSell(
 	request model.TradingExecutionRequest,
 	account model.TradingAccountSnapshot,
 ) (model.TradingExecutionResult, error) {
-	symbol := strings.ToUpper(strings.TrimSpace(request.Symbol))
-	if err := s.cancelOpenOrdersForSymbol(ctx, mode, symbol); err != nil {
-		return model.TradingExecutionResult{}, err
-	}
-	order, err := s.client.ClosePosition(ctx, mode, symbol)
+	order, err := s.client.ClosePosition(ctx, mode, strings.ToUpper(strings.TrimSpace(request.Symbol)))
 	if err != nil {
 		return model.TradingExecutionResult{}, err
 	}
 	return model.TradingExecutionResult{
 		Status:      "submitted",
 		SessionID:   sessionID,
-		Symbol:      symbol,
+		Symbol:      strings.ToUpper(strings.TrimSpace(request.Symbol)),
 		Action:      strings.ToUpper(strings.TrimSpace(request.Action)),
 		Mode:        mode,
 		OrderID:     order.ID,
@@ -209,42 +197,17 @@ func (s *Service) waitForFilledOrder(ctx context.Context, mode, orderID string) 
 			return alpaca.Order{}, err
 		}
 		status := strings.ToLower(strings.TrimSpace(order.Status))
-		if status == "filled" {
+		if status == "filled" || status == "partially_filled" || status == "done_for_day" {
 			return order, nil
-		}
-		// "partially_filled" remains non-terminal: keep polling.
-		if status == "canceled" || status == "expired" || status == "rejected" || status == "done_for_day" {
-			return alpaca.Order{}, fmt.Errorf("alpaca order %s ended with status %q", orderID, status)
 		}
 		select {
 		case <-ctx.Done():
 			return alpaca.Order{}, ctx.Err()
 		case <-deadline.C:
-			_ = s.client.CancelOrder(ctx, mode, orderID)
-			return alpaca.Order{}, fmt.Errorf("alpaca order %s did not fill within %s", orderID, orderFillTimeout)
+			return order, nil
 		case <-ticker.C:
 		}
 	}
-}
-
-func (s *Service) cancelOpenOrdersForSymbol(ctx context.Context, mode, symbol string) error {
-	orders, err := s.client.ListOpenOrders(ctx, mode, symbol)
-	if err != nil {
-		return err
-	}
-	var cancelErrors []string
-	for _, order := range orders {
-		if strings.ToUpper(strings.TrimSpace(order.Symbol)) != symbol {
-			continue
-		}
-		if err := s.client.CancelOrder(ctx, mode, order.ID); err != nil {
-			cancelErrors = append(cancelErrors, fmt.Sprintf("%s:%s", order.ID, err))
-		}
-	}
-	if len(cancelErrors) > 0 {
-		return fmt.Errorf("cancel alpaca open orders: %s", strings.Join(cancelErrors, "; "))
-	}
-	return nil
 }
 
 func normalizeTradingSettings(session model.SessionSummary) model.SessionSummary {
@@ -310,31 +273,7 @@ func float64Ptr(value float64) *float64 {
 	return &value
 }
 
-func roundStopPrice(value float64) float64 {
-	if value <= 0 {
-		return 0
-	}
-	precision := 100.0
-	if value < 1.0 {
-		precision = 10000.0
-	}
-	return math.Round(value*precision) / precision
-}
-
-func stopLossTimeInForce(qty float64) string {
-	if qty <= 0 {
-		return "gtc"
-	}
-	if math.Abs(qty-math.Round(qty)) > 1e-9 {
-		return "day"
-	}
-	return "gtc"
-}
-
-func parseFloat(value string, fallback float64) float64 {
-	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
-		return fallback
-	}
+func parseFloat(value string) float64 {
+	parsed, _ := strconv.ParseFloat(strings.TrimSpace(value), 64)
 	return parsed
 }

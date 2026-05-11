@@ -127,7 +127,7 @@ type SessionSummary struct {
 	TradingAllocations  map[string]float64         `json:"trading_allocations,omitempty"`
 	TradingStopLossPct  float64                    `json:"trading_stop_loss_percent,omitempty"`
 	TradingAccount      *TradingAccountSnapshot    `json:"trading_account,omitempty"`
-	TradingUpdatedAt    *time.Time                 `json:"trading_updated_at,omitempty"`
+	TradingUpdatedAt    time.Time                  `json:"trading_updated_at,omitempty"`
 	OptimizationSummary *WindowOptimizationSummary `json:"optimization_summary,omitempty"`
 	UpdatedAt           time.Time                  `json:"updated_at"`
 }

@@ -13,6 +13,15 @@ import (
 	"time"
 )
 
+const (
+	orderSideBuy    = "buy"
+	orderSideSell   = "sell"
+	orderTypeMarket = "market"
+	orderTypeStop   = "stop"
+	timeInForceDay  = "day"
+	timeInForceGtc  = "gtc"
+)
+
 type Client struct {
 	apiKeyID   string
 	secretKey  string
@@ -66,7 +75,7 @@ func NewClient(apiKeyID, secretKey, paperURL, liveURL string, timeout time.Durat
 }
 
 func (c *Client) configured() bool {
-	return c != nil && c.apiKeyID != "" && c.secretKey != "" && (c.paperURL != "" || c.liveURL != "")
+	return c != nil && c.apiKeyID != "" && c.secretKey != "" && c.paperURL != "" && c.liveURL != ""
 }
 
 func (c *Client) GetAccount(ctx context.Context, mode string) (Account, error) {
@@ -97,31 +106,6 @@ func (c *Client) SubmitOrder(ctx context.Context, mode string, req OrderRequest)
 		return Order{}, fmt.Errorf("decode alpaca order: %w", err)
 	}
 	return order, nil
-}
-
-func (c *Client) ListOpenOrders(ctx context.Context, mode, symbol string) ([]Order, error) {
-	if !c.configured() {
-		return nil, errors.New("alpaca client not configured")
-	}
-	escapedSymbol := url.QueryEscape(strings.TrimSpace(symbol))
-	body, err := c.do(ctx, http.MethodGet, mode, "/v2/orders?status=open&symbols="+escapedSymbol, nil)
-	if err != nil {
-		return nil, err
-	}
-	var orders []Order
-	if err := json.Unmarshal(body, &orders); err != nil {
-		return nil, fmt.Errorf("decode alpaca open orders: %w", err)
-	}
-	return orders, nil
-}
-
-func (c *Client) CancelOrder(ctx context.Context, mode, orderID string) error {
-	if !c.configured() {
-		return errors.New("alpaca client not configured")
-	}
-	escaped := url.PathEscape(strings.TrimSpace(orderID))
-	_, err := c.do(ctx, http.MethodDelete, mode, "/v2/orders/"+escaped, nil)
-	return err
 }
 
 func (c *Client) GetOrder(ctx context.Context, mode, orderID string) (Order, error) {
@@ -182,9 +166,7 @@ func (c *Client) do(ctx context.Context, method, mode, path string, payload any)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
+	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
