@@ -205,7 +205,7 @@ func (s *Service) waitForFilledOrder(ctx context.Context, mode, orderID string) 
 			return order, nil
 		}
 		if status == "partially_filled" {
-			continue
+			// Keep polling until the order is fully filled, canceled, or times out.
 		}
 		if status == "canceled" || status == "expired" || status == "rejected" || status == "done_for_day" {
 			return alpaca.Order{}, fmt.Errorf("alpaca order %s ended with status %q", orderID, status)

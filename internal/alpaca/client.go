@@ -13,15 +13,6 @@ import (
 	"time"
 )
 
-const (
-	orderSideBuy    = "buy"
-	orderSideSell   = "sell"
-	orderTypeMarket = "market"
-	orderTypeStop   = "stop"
-	timeInForceDay  = "day"
-	timeInForceGtc  = "gtc"
-)
-
 type Client struct {
 	apiKeyID   string
 	secretKey  string
@@ -75,7 +66,7 @@ func NewClient(apiKeyID, secretKey, paperURL, liveURL string, timeout time.Durat
 }
 
 func (c *Client) configured() bool {
-	return c != nil && c.apiKeyID != "" && c.secretKey != "" && c.paperURL != "" && c.liveURL != ""
+	return c != nil && c.apiKeyID != "" && c.secretKey != "" && (c.paperURL != "" || c.liveURL != "")
 }
 
 func (c *Client) GetAccount(ctx context.Context, mode string) (Account, error) {

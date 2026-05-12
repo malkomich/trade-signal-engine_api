@@ -747,6 +747,22 @@ func TestRouterAddsCORSHeadersForPreflightRequests(t *testing.T) {
 	}
 }
 
+func TestRouterAllowsWildcardCORSOrigins(t *testing.T) {
+	req := httptest.NewRequest(http.MethodOptions, "/v1/sessions/session-1/trading", nil)
+	req.Header.Set("Origin", "https://anything.example.test")
+	req.Header.Set("Access-Control-Request-Method", http.MethodPut)
+	rr := httptest.NewRecorder()
+
+	NewRouter(store.NewMemoryStore(), nil, nil, slog.Default(), "IXIC", []string{"*"}, nil).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204, got %d", rr.Code)
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "https://anything.example.test" {
+		t.Fatalf("expected allow-origin header, got %q", got)
+	}
+}
+
 func TestRouterRejectsDisallowedCORSPreflightRequests(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/v1/sessions/session-1/trading", nil)
 	req.Header.Set("Origin", "https://malicious.example.test")
