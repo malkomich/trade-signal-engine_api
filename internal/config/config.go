@@ -44,7 +44,7 @@ func FromEnv() Config {
 		AlpacaPaperTradingURL:  getenv("ALPACA_PAPER_TRADING_URL", "https://paper-api.alpaca.markets"),
 		AlpacaLiveTradingURL:   getenv("ALPACA_LIVE_TRADING_URL", "https://api.alpaca.markets"),
 		DefaultBenchmarkSymbol: getenv("MARKET_BENCHMARK_SYMBOL", "IXIC"),
-		CORSAllowedOrigins:     splitList(getenv("CORS_ALLOWED_ORIGINS", "https://*.web.app,https://*.firebaseapp.com,http://localhost:*,http://127.0.0.1:*")),
+		CORSAllowedOrigins:     splitList(getenv("CORS_ALLOWED_ORIGINS", "")),
 	}
 	if cfg.DatabaseURL == "" && cfg.ProjectID != "" {
 		cfg.DatabaseURL = defaultDatabaseURL(cfg.ProjectID)

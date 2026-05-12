@@ -201,8 +201,14 @@ func (s *Service) waitForFilledOrder(ctx context.Context, mode, orderID string) 
 			return alpaca.Order{}, err
 		}
 		status := strings.ToLower(strings.TrimSpace(order.Status))
-		if status == "filled" || status == "partially_filled" || status == "done_for_day" {
+		if status == "filled" {
 			return order, nil
+		}
+		if status == "partially_filled" {
+			continue
+		}
+		if status == "canceled" || status == "expired" || status == "rejected" || status == "done_for_day" {
+			return alpaca.Order{}, fmt.Errorf("alpaca order %s ended with status %q", orderID, status)
 		}
 		select {
 		case <-ctx.Done():
