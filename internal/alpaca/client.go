@@ -99,6 +99,31 @@ func (c *Client) SubmitOrder(ctx context.Context, mode string, req OrderRequest)
 	return order, nil
 }
 
+func (c *Client) ListOpenOrders(ctx context.Context, mode, symbol string) ([]Order, error) {
+	if !c.configured() {
+		return nil, errors.New("alpaca client not configured")
+	}
+	escapedSymbol := url.QueryEscape(strings.TrimSpace(symbol))
+	body, err := c.do(ctx, http.MethodGet, mode, "/v2/orders?status=open&symbols="+escapedSymbol, nil)
+	if err != nil {
+		return nil, err
+	}
+	var orders []Order
+	if err := json.Unmarshal(body, &orders); err != nil {
+		return nil, fmt.Errorf("decode alpaca open orders: %w", err)
+	}
+	return orders, nil
+}
+
+func (c *Client) CancelOrder(ctx context.Context, mode, orderID string) error {
+	if !c.configured() {
+		return errors.New("alpaca client not configured")
+	}
+	escaped := url.PathEscape(strings.TrimSpace(orderID))
+	_, err := c.do(ctx, http.MethodDelete, mode, "/v2/orders/"+escaped, nil)
+	return err
+}
+
 func (c *Client) GetOrder(ctx context.Context, mode, orderID string) (Order, error) {
 	if !c.configured() {
 		return Order{}, errors.New("alpaca client not configured")

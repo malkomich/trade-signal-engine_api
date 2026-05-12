@@ -125,7 +125,7 @@ func (s *Service) executeBuy(
 	stopLossPct := normalizeStopLossPercent(settings.TradingStopLossPct)
 	stopLossPrice := 0.0
 	if filledPrice > 0 && stopLossPct > 0 {
-		stopLossPrice = filledPrice * (1.0 - (stopLossPct / 100.0))
+		stopLossPrice = roundStopPrice(filledPrice * (1.0 - (stopLossPct / 100.0)))
 	}
 	stopOrder := alpaca.Order{}
 	if filledQty > 0 && stopLossPrice > 0 {
@@ -133,7 +133,7 @@ func (s *Service) executeBuy(
 			Symbol:      strings.ToUpper(strings.TrimSpace(request.Symbol)),
 			Side:        "sell",
 			Type:        "stop",
-			TimeInForce: "gtc",
+			TimeInForce: stopLossTimeInForce(filledQty),
 			Qty:         float64Ptr(filledQty),
 			StopPrice:   float64Ptr(stopLossPrice),
 		})
@@ -173,14 +173,18 @@ func (s *Service) executeSell(
 	request model.TradingExecutionRequest,
 	account model.TradingAccountSnapshot,
 ) (model.TradingExecutionResult, error) {
-	order, err := s.client.ClosePosition(ctx, mode, strings.ToUpper(strings.TrimSpace(request.Symbol)))
+	symbol := strings.ToUpper(strings.TrimSpace(request.Symbol))
+	if err := s.cancelOpenOrdersForSymbol(ctx, mode, symbol); err != nil {
+		return model.TradingExecutionResult{}, err
+	}
+	order, err := s.client.ClosePosition(ctx, mode, symbol)
 	if err != nil {
 		return model.TradingExecutionResult{}, err
 	}
 	return model.TradingExecutionResult{
 		Status:      "submitted",
 		SessionID:   sessionID,
-		Symbol:      strings.ToUpper(strings.TrimSpace(request.Symbol)),
+		Symbol:      symbol,
 		Action:      strings.ToUpper(strings.TrimSpace(request.Action)),
 		Mode:        mode,
 		OrderID:     order.ID,
@@ -218,6 +222,26 @@ func (s *Service) waitForFilledOrder(ctx context.Context, mode, orderID string) 
 		case <-ticker.C:
 		}
 	}
+}
+
+func (s *Service) cancelOpenOrdersForSymbol(ctx context.Context, mode, symbol string) error {
+	orders, err := s.client.ListOpenOrders(ctx, mode, symbol)
+	if err != nil {
+		return err
+	}
+	var cancelErrors []string
+	for _, order := range orders {
+		if strings.ToUpper(strings.TrimSpace(order.Symbol)) != symbol {
+			continue
+		}
+		if err := s.client.CancelOrder(ctx, mode, order.ID); err != nil {
+			cancelErrors = append(cancelErrors, fmt.Sprintf("%s:%s", order.ID, err))
+		}
+	}
+	if len(cancelErrors) > 0 {
+		return fmt.Errorf("cancel alpaca open orders: %s", strings.Join(cancelErrors, "; "))
+	}
+	return nil
 }
 
 func normalizeTradingSettings(session model.SessionSummary) model.SessionSummary {
@@ -281,6 +305,27 @@ func float64Ptr(value float64) *float64 {
 		return nil
 	}
 	return &value
+}
+
+func roundStopPrice(value float64) float64 {
+	if value <= 0 {
+		return 0
+	}
+	precision := 100.0
+	if value < 1.0 {
+		precision = 10000.0
+	}
+	return math.Round(value*precision) / precision
+}
+
+func stopLossTimeInForce(qty float64) string {
+	if qty <= 0 {
+		return "gtc"
+	}
+	if math.Abs(qty-math.Round(qty)) > 1e-9 {
+		return "day"
+	}
+	return "gtc"
 }
 
 func parseFloat(value string, fallback float64) float64 {
