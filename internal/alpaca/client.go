@@ -13,15 +13,6 @@ import (
 	"time"
 )
 
-const (
-	orderSideBuy    = "buy"
-	orderSideSell   = "sell"
-	orderTypeMarket = "market"
-	orderTypeStop   = "stop"
-	timeInForceDay  = "day"
-	timeInForceGtc  = "gtc"
-)
-
 type Client struct {
 	paperAPIKeyID string
 	paperSecret   string
