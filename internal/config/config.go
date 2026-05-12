@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 const defaultDatabaseURLTemplate = "https://%s-default-rtdb.firebaseio.com/"
@@ -23,6 +24,7 @@ type Config struct {
 	AlpacaPaperTradingURL  string
 	AlpacaLiveTradingURL   string
 	DefaultBenchmarkSymbol string
+	CORSAllowedOrigins     []string
 }
 
 func FromEnv() Config {
@@ -42,6 +44,7 @@ func FromEnv() Config {
 		AlpacaPaperTradingURL:  getenv("ALPACA_PAPER_TRADING_URL", "https://paper-api.alpaca.markets"),
 		AlpacaLiveTradingURL:   getenv("ALPACA_LIVE_TRADING_URL", "https://api.alpaca.markets"),
 		DefaultBenchmarkSymbol: getenv("MARKET_BENCHMARK_SYMBOL", "IXIC"),
+		CORSAllowedOrigins:     splitList(getenv("CORS_ALLOWED_ORIGINS", "https://*.web.app,https://*.firebaseapp.com,http://localhost:*,http://127.0.0.1:*")),
 	}
 	if cfg.DatabaseURL == "" && cfg.ProjectID != "" {
 		cfg.DatabaseURL = defaultDatabaseURL(cfg.ProjectID)
@@ -58,4 +61,15 @@ func getenv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func splitList(value string) []string {
+	parts := strings.Split(value, ",")
+	items := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			items = append(items, trimmed)
+		}
+	}
+	return items
 }
