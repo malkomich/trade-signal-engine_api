@@ -25,5 +25,6 @@ services:
       ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
       ALPACA_PAPER_TRADING_URL: ${ALPACA_PAPER_TRADING_URL:-https://paper-api.alpaca.markets}
       ALPACA_LIVE_TRADING_URL: ${ALPACA_LIVE_TRADING_URL:-https://api.alpaca.markets}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://tradesignalengine.web.app,https://tradesignalengine.firebaseapp.com,http://localhost:*,http://127.0.0.1:*}
     volumes:
       - ${FIREBASE_CREDENTIALS_FILE:?FIREBASE_CREDENTIALS_FILE is required}:/run/secrets/firebase-service-account.json:ro
