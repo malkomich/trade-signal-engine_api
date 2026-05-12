@@ -106,6 +106,9 @@ func originAllowed(origin string, allowedOrigins []string) bool {
 		return false
 	}
 	for _, allowed := range allowedOrigins {
+		if allowed == "*" {
+			return true
+		}
 		matched, err := path.Match(allowed, origin)
 		if err == nil && matched {
 			return true
