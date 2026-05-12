@@ -82,7 +82,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewRouter(st, notifier, pushoverNotifier, logger, cfg.DefaultBenchmarkSymbol, tradingService),
+		Handler:           httpapi.NewRouter(st, notifier, pushoverNotifier, logger, cfg.DefaultBenchmarkSymbol, cfg.CORSAllowedOrigins, tradingService),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

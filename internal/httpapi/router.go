@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -32,27 +33,40 @@ type Router struct {
 	tradingService         *trading.Service
 	logger                 *slog.Logger
 	defaultBenchmarkSymbol string
+	allowedOrigins         []string
 }
 
-func NewRouter(st store.Store, notifier notify.Publisher, pushoverNotifier notify.Publisher, logger *slog.Logger, defaultBenchmarkSymbol string, tradingService ...*trading.Service) http.Handler {
-	var tradingSvc *trading.Service
-	if len(tradingService) > 0 {
-		tradingSvc = tradingService[0]
+func NewRouter(st store.Store, notifier notify.Publisher, pushoverNotifier notify.Publisher, logger *slog.Logger, defaultBenchmarkSymbol string, allowedOrigins []string, tradingService *trading.Service) http.Handler {
+	r := &Router{
+		store:                  st,
+		notifier:               notifier,
+		pushoverNotifier:       pushoverNotifier,
+		tradingService:         tradingService,
+		logger:                 logger,
+		defaultBenchmarkSymbol: defaultBenchmarkSymbol,
+		allowedOrigins:         normalizeOrigins(allowedOrigins),
 	}
-	r := &Router{store: st, notifier: notifier, pushoverNotifier: pushoverNotifier, tradingService: tradingSvc, logger: logger, defaultBenchmarkSymbol: defaultBenchmarkSymbol}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", r.root)
 	mux.HandleFunc("/healthz", r.healthz)
 	mux.HandleFunc("/readyz", r.readyz)
 	mux.HandleFunc("/v1/decisions", r.decisions)
 	mux.HandleFunc("/v1/sessions/", r.sessions)
-	return withCORS(mux)
+	return withCORS(mux, r.allowedOrigins)
 }
 
-func withCORS(next http.Handler) http.Handler {
+func withCORS(next http.Handler, allowedOrigins []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		origin := strings.TrimSpace(req.Header.Get("Origin"))
 		if origin != "" {
+			if !originAllowed(origin, allowedOrigins) {
+				if req.Method == http.MethodOptions {
+					w.WriteHeader(http.StatusForbidden)
+					return
+				}
+				next.ServeHTTP(w, req)
+				return
+			}
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Add("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
@@ -65,6 +79,42 @@ func withCORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, req)
 	})
+}
+
+func normalizeOrigins(origins []string) []string {
+	if len(origins) == 0 {
+		return nil
+	}
+	normalized := make([]string, 0, len(origins))
+	seen := make(map[string]struct{}, len(origins))
+	for _, origin := range origins {
+		trimmed := strings.TrimSpace(origin)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+	return normalized
+}
+
+func originAllowed(origin string, allowedOrigins []string) bool {
+	if len(allowedOrigins) == 0 {
+		return false
+	}
+	for _, allowed := range allowedOrigins {
+		matched, err := path.Match(allowed, origin)
+		if err == nil && matched {
+			return true
+		}
+		if allowed == origin {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Router) root(w http.ResponseWriter, _ *http.Request) {
@@ -517,6 +567,15 @@ func (r *Router) sessionPushoverNotification(w http.ResponseWriter, req *http.Re
 		writeError(w, http.StatusBadRequest, "symbol and action are required")
 		return
 	}
+	action := strings.ToUpper(strings.TrimSpace(payload.Action))
+	if !isSupportedTradingAction(action) {
+		writeError(w, http.StatusBadRequest, "unsupported trading action")
+		return
+	}
+	if strings.HasPrefix(action, "BUY") && payload.Price <= 0 {
+		writeError(w, http.StatusBadRequest, "price is required for buy executions")
+		return
+	}
 	if payload.CreatedAt.IsZero() {
 		payload.CreatedAt = time.Now().UTC()
 	}
@@ -718,6 +777,15 @@ func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request,
 		writeError(w, http.StatusBadRequest, "symbol and action are required")
 		return
 	}
+	action := strings.ToUpper(strings.TrimSpace(payload.Action))
+	if !isSupportedTradingAction(action) {
+		writeError(w, http.StatusBadRequest, "unsupported trading action")
+		return
+	}
+	if strings.HasPrefix(action, "BUY") && payload.Price <= 0 {
+		writeError(w, http.StatusBadRequest, "price is required for buy executions")
+		return
+	}
 	if payload.CreatedAt.IsZero() {
 		payload.CreatedAt = time.Now().UTC()
 	}
@@ -758,6 +826,15 @@ func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request,
 		)
 	}
 	writeJSON(w, http.StatusCreated, result)
+}
+
+func isSupportedTradingAction(action string) bool {
+	switch strings.ToUpper(strings.TrimSpace(action)) {
+	case "BUY_ALERT", "BUY", "SELL_ALERT", "SELL":
+		return true
+	default:
+		return false
+	}
 }
 
 func buildNotificationTitle(action string, symbol string) string {

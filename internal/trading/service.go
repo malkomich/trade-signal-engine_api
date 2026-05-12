@@ -19,7 +19,7 @@ const (
 	DefaultTradingStopLossPct = 0.10
 	maxTradingStopLossPct     = 10.0
 	orderFillPollInterval     = 750 * time.Millisecond
-	orderFillTimeout          = 12 * time.Second
+	orderFillTimeout          = 30 * time.Second
 )
 
 type Service struct {
@@ -52,10 +52,10 @@ func (s *Service) CurrentAccount(ctx context.Context, mode string) (model.Tradin
 	return model.TradingAccountSnapshot{
 		Mode:           mode,
 		Status:         account.Status,
-		BuyingPower:    parseFloat(account.BuyingPower),
-		Cash:           parseFloat(account.Cash),
-		Equity:         parseFloat(account.Equity),
-		PortfolioValue: parseFloat(account.PortfolioValue),
+		BuyingPower:    parseFloat(account.BuyingPower, 0),
+		Cash:           parseFloat(account.Cash, 0),
+		Equity:         parseFloat(account.Equity, 0),
+		PortfolioValue: parseFloat(account.PortfolioValue, 0),
 		UpdatedAt:      time.Now().UTC(),
 	}, nil
 }
@@ -114,13 +114,13 @@ func (s *Service) executeBuy(
 	if err != nil {
 		return model.TradingExecutionResult{}, err
 	}
-	filledQty := parseFloat(filledOrder.FilledQty)
+	filledQty := parseFloat(filledOrder.FilledQty, 0)
 	if filledQty <= 0 {
-		filledQty = parseFloat(filledOrder.Qty)
+		filledQty = parseFloat(filledOrder.Qty, 0)
 	}
-	filledPrice := parseFloat(filledOrder.FilledAvgPrice)
-	if filledPrice <= 0 {
-		filledPrice = request.Price
+	filledPrice := parseFloat(filledOrder.FilledAvgPrice, 0)
+	if filledQty <= 0 || filledPrice <= 0 {
+		return model.TradingExecutionResult{}, fmt.Errorf("alpaca buy order %s did not return a filled quantity and price", order.ID)
 	}
 	stopLossPct := normalizeStopLossPercent(settings.TradingStopLossPct)
 	stopLossPrice := 0.0
@@ -140,6 +140,10 @@ func (s *Service) executeBuy(
 		if err != nil {
 			return model.TradingExecutionResult{}, err
 		}
+	}
+	updatedAccount, err := s.CurrentAccount(ctx, mode)
+	if err == nil {
+		account = updatedAccount
 	}
 
 	return model.TradingExecutionResult{
@@ -204,7 +208,7 @@ func (s *Service) waitForFilledOrder(ctx context.Context, mode, orderID string) 
 		case <-ctx.Done():
 			return alpaca.Order{}, ctx.Err()
 		case <-deadline.C:
-			return order, nil
+			return alpaca.Order{}, fmt.Errorf("alpaca order %s did not fill within %s", orderID, orderFillTimeout)
 		case <-ticker.C:
 		}
 	}
@@ -273,7 +277,10 @@ func float64Ptr(value float64) *float64 {
 	return &value
 }
 
-func parseFloat(value string) float64 {
-	parsed, _ := strconv.ParseFloat(strings.TrimSpace(value), 64)
+func parseFloat(value string, fallback float64) float64 {
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+		return fallback
+	}
 	return parsed
 }
