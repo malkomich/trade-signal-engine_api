@@ -69,15 +69,19 @@ func (s *Service) Execute(ctx context.Context, session model.SessionSummary, req
 		mode = DefaultTradingMode
 	}
 	settings := normalizeTradingSettings(session)
-	account, err := s.CurrentAccount(ctx, mode)
-	if err != nil {
-		return model.TradingExecutionResult{}, err
-	}
 
 	switch strings.ToUpper(strings.TrimSpace(request.Action)) {
 	case "BUY_ALERT", "BUY":
+		account, err := s.CurrentAccount(ctx, mode)
+		if err != nil {
+			return model.TradingExecutionResult{}, err
+		}
 		return s.executeBuy(ctx, session.ID, mode, settings, request, account)
 	case "SELL_ALERT", "SELL":
+		account := model.TradingAccountSnapshot{Mode: mode}
+		if currentAccount, err := s.CurrentAccount(ctx, mode); err == nil {
+			account = currentAccount
+		}
 		return s.executeSell(ctx, session.ID, mode, request, account)
 	default:
 		return model.TradingExecutionResult{}, fmt.Errorf("unsupported trading action %q", request.Action)
@@ -218,6 +222,7 @@ func (s *Service) waitForFilledOrder(ctx context.Context, mode, orderID string) 
 		case <-ctx.Done():
 			return alpaca.Order{}, ctx.Err()
 		case <-deadline.C:
+			_ = s.client.CancelOrder(ctx, mode, orderID)
 			return alpaca.Order{}, fmt.Errorf("alpaca order %s did not fill within %s", orderID, orderFillTimeout)
 		case <-ticker.C:
 		}

@@ -673,21 +673,13 @@ func (r *Router) sessionTrading(w http.ResponseWriter, req *http.Request, sessio
 			}
 		} else {
 			session.TradingAccount = &account
-			session.TradingUpdatedAt = time.Now().UTC()
+			session.TradingUpdatedAt = timePtr(time.Now().UTC())
 			if err := r.store.UpsertSession(req.Context(), session); err != nil && r.logger != nil {
 				r.logger.Warn("failed to persist trading account snapshot", "session_id", sessionID, "error", err)
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"session_id":                sessionID,
-		"trading_mode":              session.TradingMode,
-		"trading_allocations":       session.TradingAllocations,
-		"trading_stop_loss_percent": session.TradingStopLossPct,
-		"trading_account":           session.TradingAccount,
-		"trading_updated_at":        session.TradingUpdatedAt,
-		"updated_at":                session.UpdatedAt,
-	})
+	writeJSON(w, http.StatusOK, tradingSessionResponse(sessionID, session))
 }
 
 func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, sessionID string) {
@@ -732,7 +724,7 @@ func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, 
 	session.TradingMode = mode
 	session.TradingAllocations = allocations
 	session.TradingStopLossPct = stopLoss
-	session.TradingUpdatedAt = time.Now().UTC()
+	session.TradingUpdatedAt = timePtr(time.Now().UTC())
 	if r.tradingService != nil {
 		account, accountErr := r.tradingService.CurrentAccount(req.Context(), session.TradingMode)
 		if accountErr != nil {
@@ -741,29 +733,17 @@ func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, 
 			}
 		} else {
 			session.TradingAccount = &account
-			session.TradingUpdatedAt = account.UpdatedAt
+			session.TradingUpdatedAt = timePtr(account.UpdatedAt)
 		}
 	}
 	if err := r.store.UpsertSession(req.Context(), session); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save trading settings")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"session_id":                sessionID,
-		"trading_mode":              session.TradingMode,
-		"trading_allocations":       session.TradingAllocations,
-		"trading_stop_loss_percent": session.TradingStopLossPct,
-		"trading_account":           session.TradingAccount,
-		"trading_updated_at":        session.TradingUpdatedAt,
-		"updated_at":                session.UpdatedAt,
-	})
+	writeJSON(w, http.StatusOK, tradingSessionResponse(sessionID, session))
 }
 
 func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request, sessionID string) {
-	if r.tradingService == nil {
-		writeError(w, http.StatusServiceUnavailable, "alpaca trading is not configured")
-		return
-	}
 	var payload model.TradingExecutionRequest
 	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json payload")
@@ -792,6 +772,10 @@ func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request,
 	if payload.CreatedAt.IsZero() {
 		payload.CreatedAt = time.Now().UTC()
 	}
+	if r.tradingService == nil {
+		writeError(w, http.StatusServiceUnavailable, "alpaca trading is not configured")
+		return
+	}
 	session, err := r.store.GetSession(req.Context(), sessionID)
 	if err == store.ErrNotFound {
 		writeError(w, http.StatusNotFound, "session not found")
@@ -811,7 +795,7 @@ func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request,
 	}
 	session.TradingMode = result.Mode
 	session.TradingAccount = result.Account
-	session.TradingUpdatedAt = result.SubmittedAt
+	session.TradingUpdatedAt = timePtr(result.SubmittedAt)
 	if err := r.store.UpsertSession(req.Context(), session); err != nil && r.logger != nil {
 		r.logger.Warn("failed to persist trading account snapshot", "session_id", sessionID, "error", err)
 	}
@@ -829,6 +813,28 @@ func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request,
 		)
 	}
 	writeJSON(w, http.StatusCreated, result)
+}
+
+func tradingSessionResponse(sessionID string, session model.SessionSummary) map[string]any {
+	payload := map[string]any{
+		"session_id":                sessionID,
+		"trading_mode":              session.TradingMode,
+		"trading_allocations":       session.TradingAllocations,
+		"trading_stop_loss_percent": session.TradingStopLossPct,
+		"trading_account":           session.TradingAccount,
+		"updated_at":                session.UpdatedAt,
+	}
+	if session.TradingUpdatedAt != nil {
+		payload["trading_updated_at"] = *session.TradingUpdatedAt
+	}
+	return payload
+}
+
+func timePtr(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return &value
 }
 
 func isSupportedTradingAction(action string) bool {
