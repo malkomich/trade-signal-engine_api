@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 const defaultDatabaseURLTemplate = "https://%s-default-rtdb.firebaseio.com/"
@@ -18,7 +19,12 @@ type Config struct {
 	PushoverUserKey        string
 	PushoverAPIToken       string
 	PushoverSound          string
+	AlpacaAPIKeyID         string
+	AlpacaSecretKey        string
+	AlpacaPaperTradingURL  string
+	AlpacaLiveTradingURL   string
 	DefaultBenchmarkSymbol string
+	CORSAllowedOrigins     []string
 }
 
 func FromEnv() Config {
@@ -33,7 +39,12 @@ func FromEnv() Config {
 		PushoverUserKey:        os.Getenv("PUSHOVER_USER_KEY"),
 		PushoverAPIToken:       os.Getenv("PUSHOVER_API_TOKEN"),
 		PushoverSound:          os.Getenv("PUSHOVER_SOUND"),
+		AlpacaAPIKeyID:         os.Getenv("ALPACA_API_KEY_ID"),
+		AlpacaSecretKey:        os.Getenv("ALPACA_SECRET_KEY"),
+		AlpacaPaperTradingURL:  getenv("ALPACA_PAPER_TRADING_URL", "https://paper-api.alpaca.markets"),
+		AlpacaLiveTradingURL:   getenv("ALPACA_LIVE_TRADING_URL", "https://api.alpaca.markets"),
 		DefaultBenchmarkSymbol: getenv("MARKET_BENCHMARK_SYMBOL", "IXIC"),
+		CORSAllowedOrigins:     splitList(getenv("CORS_ALLOWED_ORIGINS", "")),
 	}
 	if cfg.DatabaseURL == "" && cfg.ProjectID != "" {
 		cfg.DatabaseURL = defaultDatabaseURL(cfg.ProjectID)
@@ -50,4 +61,15 @@ func getenv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func splitList(value string) []string {
+	parts := strings.Split(value, ",")
+	items := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			items = append(items, trimmed)
+		}
+	}
+	return items
 }
