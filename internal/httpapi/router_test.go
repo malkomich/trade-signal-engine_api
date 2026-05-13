@@ -805,16 +805,16 @@ func TestSessionTradingAccountEndpointRejectsInvalidMode(t *testing.T) {
 
 func TestRouterAddsCORSHeadersForPreflightRequests(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/v1/sessions/session-1/trading", nil)
-	req.Header.Set("Origin", "https://admin.example.test")
+	req.Header.Set("Origin", "https://trade-signal-engine.firebaseapp.com")
 	req.Header.Set("Access-Control-Request-Method", http.MethodPut)
 	rr := httptest.NewRecorder()
 
-	NewRouter(store.NewMemoryStore(), nil, nil, slog.Default(), "IXIC", []string{"https://admin.example.test"}).ServeHTTP(rr, req)
+	NewRouter(store.NewMemoryStore(), nil, nil, slog.Default(), "IXIC", []string{"https://trade-signal-engine.firebaseapp.com"}).ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected status 204, got %d", rr.Code)
 	}
-	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "https://admin.example.test" {
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "https://trade-signal-engine.firebaseapp.com" {
 		t.Fatalf("expected allow-origin header, got %q", got)
 	}
 	if got := rr.Header().Get("Access-Control-Allow-Methods"); got == "" {

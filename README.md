@@ -35,7 +35,7 @@ The compose file uses the project name `trade-signal-engine-server`, which keeps
 container grouped with the edge worker in Dozzle on the Raspberry Pi.
 
 The container now exposes a landing page on `http://localhost:18080/` and the proxy can route
-`https://tradesignalengine.backend.synapsesea.com/api` to that page while keeping the REST
+`https://trade-signal-engine.backend.synapsesea.com/api` to that page while keeping the REST
 routes under `/api/*`.
 
 ## Test
@@ -93,7 +93,7 @@ These repository variables are also useful for tooling and local automation:
 
 The API also writes live signal rows to the realtime backend in `signal_events`, which is what the
 Firebase-hosted admin dashboard reads for real-time triage.
-The public proxy points `https://tradesignalengine.backend.synapsesea.com/api` to this API
+The public proxy points `https://trade-signal-engine.backend.synapsesea.com/api` to this API
 container through the local port published by Compose.
 
 ## Analytics export
