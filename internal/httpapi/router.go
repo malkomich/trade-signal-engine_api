@@ -693,6 +693,8 @@ func (r *Router) sessionTrading(w http.ResponseWriter, req *http.Request, sessio
 				r.logger.Warn("failed to persist trading account snapshot", "session_id", sessionID, "error", err)
 			}
 		}
+		writeJSON(w, http.StatusOK, tradingSessionResponseWithError(sessionID, session, accountErr))
+		return
 	}
 	writeJSON(w, http.StatusOK, tradingSessionResponse(sessionID, session))
 }
@@ -779,11 +781,13 @@ func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, 
 	session.TradingAllocations = allocations
 	session.TradingStopLossPct = stopLoss
 	session.TradingUpdatedAt = timePtr(time.Now().UTC())
+	var accountErr error
 	if r.tradingService != nil {
-		account, accountErr := r.tradingService.CurrentAccount(req.Context(), session.TradingMode)
-		if accountErr != nil {
+		account, refreshErr := r.tradingService.CurrentAccount(req.Context(), session.TradingMode)
+		accountErr = refreshErr
+		if refreshErr != nil {
 			if r.logger != nil {
-				r.logger.Warn("alpaca account refresh failed after trading settings update", "session_id", sessionID, "error", accountErr)
+				r.logger.Warn("alpaca account refresh failed after trading settings update", "session_id", sessionID, "error", refreshErr)
 			}
 		} else {
 			session.TradingAccount = &account
@@ -794,15 +798,7 @@ func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, 
 		writeError(w, http.StatusInternalServerError, "failed to save trading settings")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"session_id":                sessionID,
-		"trading_mode":              session.TradingMode,
-		"trading_allocations":       session.TradingAllocations,
-		"trading_stop_loss_percent": session.TradingStopLossPct,
-		"trading_account":           session.TradingAccount,
-		"trading_updated_at":        session.TradingUpdatedAt,
-		"updated_at":                session.UpdatedAt,
-	})
+	writeJSON(w, http.StatusOK, tradingSessionResponseWithError(sessionID, session, accountErr))
 }
 
 func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request, sessionID string) {
@@ -906,6 +902,14 @@ func tradingSessionResponse(sessionID string, session model.SessionSummary) map[
 		"trading_updated_at":        session.TradingUpdatedAt,
 		"updated_at":                session.UpdatedAt,
 	}
+}
+
+func tradingSessionResponseWithError(sessionID string, session model.SessionSummary, accountErr error) map[string]any {
+	payload := tradingSessionResponse(sessionID, session)
+	if accountErr != nil {
+		payload["trading_account_error"] = accountErr.Error()
+	}
+	return payload
 }
 
 func resolveTradingMode(sessionMode string, queryMode string) (string, error) {
