@@ -41,10 +41,10 @@ func FromEnv() Config {
 		PushoverUserKey:        os.Getenv("PUSHOVER_USER_KEY"),
 		PushoverAPIToken:       os.Getenv("PUSHOVER_API_TOKEN"),
 		PushoverSound:          os.Getenv("PUSHOVER_SOUND"),
-		AlpacaLiveAPIKey:       os.Getenv("ALPACA_LIVE_API_KEY"),
-		AlpacaLiveSecret:       os.Getenv("ALPACA_LIVE_SECRET"),
-		AlpacaPaperAPIKey:      os.Getenv("ALPACA_PAPER_API_KEY"),
-		AlpacaPaperSecret:      os.Getenv("ALPACA_PAPER_SECRET"),
+		AlpacaLiveAPIKey:       getenvAny("ALPACA_LIVE_API_KEY", "ALPACA_API_KEY_ID"),
+		AlpacaLiveSecret:       getenvAny("ALPACA_LIVE_SECRET", "ALPACA_API_SECRET_KEY"),
+		AlpacaPaperAPIKey:      getenvAny("ALPACA_PAPER_API_KEY", "ALPACA_API_KEY_ID"),
+		AlpacaPaperSecret:      getenvAny("ALPACA_PAPER_SECRET", "ALPACA_API_SECRET_KEY"),
 		AlpacaPaperTradingURL:  getenv("ALPACA_PAPER_TRADING_URL", "https://paper-api.alpaca.markets"),
 		AlpacaLiveTradingURL:   getenv("ALPACA_LIVE_TRADING_URL", "https://api.alpaca.markets"),
 		DefaultBenchmarkSymbol: getenv("MARKET_BENCHMARK_SYMBOL", "IXIC"),
@@ -65,6 +65,15 @@ func getenv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func getenvAny(keys ...string) string {
+	for _, key := range keys {
+		if value := os.Getenv(key); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func splitList(value string) []string {
