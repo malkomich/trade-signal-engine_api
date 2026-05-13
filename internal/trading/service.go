@@ -123,14 +123,14 @@ func (s *Service) executeBuy(
 	}
 
 	filledOrder, err := s.waitForFilledOrder(ctx, mode, order.ID)
-	if err != nil {
-		return model.TradingExecutionResult{}, err
-	}
 	filledQty := parseFloat(filledOrder.FilledQty, 0)
 	if filledQty <= 0 {
 		filledQty = parseFloat(filledOrder.Qty, 0)
 	}
 	filledPrice := parseFloat(filledOrder.FilledAvgPrice, 0)
+	if err != nil && (filledQty <= 0 || filledPrice <= 0) {
+		return model.TradingExecutionResult{}, err
+	}
 	if filledQty <= 0 || filledPrice <= 0 {
 		return model.TradingExecutionResult{}, fmt.Errorf("alpaca buy order %s did not return a filled quantity and price", order.ID)
 	}
@@ -142,13 +142,35 @@ func (s *Service) executeBuy(
 	trailingStopOrder := alpaca.Order{}
 	trailingStopError := ""
 	if filledQty > 0 && stopLossPrice > 0 {
-		trailingStopOrder, err = s.client.SubmitOrder(ctx, mode, alpaca.OrderRequest{
-			Symbol:       strings.ToUpper(strings.TrimSpace(request.Symbol)),
-			Side:         "sell",
-			Type:         "trailing_stop",
-			TimeInForce:  "gtc",
-			Qty:          float64Ptr(filledQty),
-			TrailPercent: float64Ptr(stopLossPct),
+		protectionCtx := ctx
+		if err != nil {
+			var protectionCancel context.CancelFunc
+			protectionCtx, protectionCancel = context.WithTimeout(context.Background(), 5*time.Second)
+			defer protectionCancel()
+		}
+		stopOrderType := "trailing_stop"
+		stopOrderRequest := alpaca.OrderRequest{
+			Symbol:      strings.ToUpper(strings.TrimSpace(request.Symbol)),
+			Side:        "sell",
+			Type:        stopOrderType,
+			TimeInForce: stopLossTimeInForce(filledQty),
+			Qty:         float64Ptr(filledQty),
+		}
+		if hasFractionalQty(filledQty) {
+			stopOrderType = "stop"
+			stopOrderRequest.Type = stopOrderType
+			stopOrderRequest.StopPrice = float64Ptr(stopLossPrice)
+		} else {
+			stopOrderRequest.TrailPercent = float64Ptr(stopLossPct)
+		}
+		trailingStopOrder, err = s.client.SubmitOrder(protectionCtx, mode, alpaca.OrderRequest{
+			Symbol:       stopOrderRequest.Symbol,
+			Side:         stopOrderRequest.Side,
+			Type:         stopOrderRequest.Type,
+			TimeInForce:  stopOrderRequest.TimeInForce,
+			Qty:          stopOrderRequest.Qty,
+			StopPrice:    stopOrderRequest.StopPrice,
+			TrailPercent: stopOrderRequest.TrailPercent,
 		})
 		if err != nil {
 			trailingStopOrder = alpaca.Order{}
@@ -179,6 +201,9 @@ func (s *Service) executeBuy(
 				"trail_order_id":      trailingStopOrder.ID,
 				"limit_price":         limitPrice,
 				"trail_percent":       stopLossPct,
+			}
+			if err != nil && filledQty > 0 && filledPrice > 0 {
+				details["buy_order_warning"] = err.Error()
 			}
 			if trailingStopError != "" {
 				details["stop_order_error"] = trailingStopError
@@ -228,11 +253,13 @@ func (s *Service) waitForFilledOrder(ctx context.Context, mode, orderID string) 
 	defer deadline.Stop()
 	ticker := time.NewTicker(orderFillPollInterval)
 	defer ticker.Stop()
+	var lastOrder alpaca.Order
 	for {
 		order, err := s.client.GetOrder(ctx, mode, orderID)
 		if err != nil {
 			return alpaca.Order{}, err
 		}
+		lastOrder = order
 		status := strings.ToLower(strings.TrimSpace(order.Status))
 		if status == "filled" {
 			return order, nil
@@ -248,21 +275,56 @@ func (s *Service) waitForFilledOrder(ctx context.Context, mode, orderID string) 
 			cancelCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			cancelErr := s.client.CancelOrder(cancelCtx, mode, orderID)
 			cancel()
+			finalOrder, finalErr := s.fetchFinalOrder(mode, orderID)
+			if finalErr == nil {
+				filledQty := parseFloat(finalOrder.FilledQty, 0)
+				if filledQty <= 0 {
+					filledQty = parseFloat(finalOrder.Qty, 0)
+				}
+				if filledQty > 0 {
+					return finalOrder, ctx.Err()
+				}
+			}
 			if cancelErr != nil {
 				return alpaca.Order{}, fmt.Errorf("context canceled while canceling alpaca order %s: %w", orderID, cancelErr)
+			}
+			if strings.ToLower(strings.TrimSpace(lastOrder.Status)) == "partially_filled" {
+				return lastOrder, ctx.Err()
 			}
 			return alpaca.Order{}, ctx.Err()
 		case <-deadline.C:
 			cancelCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			cancelErr := s.client.CancelOrder(cancelCtx, mode, orderID)
 			cancel()
+			finalOrder, finalErr := s.fetchFinalOrder(mode, orderID)
+			if finalErr == nil {
+				filledQty := parseFloat(finalOrder.FilledQty, 0)
+				if filledQty <= 0 {
+					filledQty = parseFloat(finalOrder.Qty, 0)
+				}
+				if filledQty > 0 {
+					if strings.EqualFold(strings.TrimSpace(finalOrder.Status), "filled") {
+						return finalOrder, nil
+					}
+					return finalOrder, fmt.Errorf("alpaca order %s partially filled within %s", orderID, orderFillTimeout)
+				}
+			}
 			if cancelErr != nil {
 				return alpaca.Order{}, fmt.Errorf("alpaca order %s did not fill within %s (cancel failed: %w)", orderID, orderFillTimeout, cancelErr)
+			}
+			if strings.ToLower(strings.TrimSpace(lastOrder.Status)) == "partially_filled" {
+				return lastOrder, fmt.Errorf("alpaca order %s partially filled within %s", orderID, orderFillTimeout)
 			}
 			return alpaca.Order{}, fmt.Errorf("alpaca order %s did not fill within %s", orderID, orderFillTimeout)
 		case <-ticker.C:
 		}
 	}
+}
+
+func (s *Service) fetchFinalOrder(mode, orderID string) (alpaca.Order, error) {
+	fetchCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return s.client.GetOrder(fetchCtx, mode, orderID)
 }
 
 func (s *Service) cancelOpenOrdersForSymbol(ctx context.Context, mode, symbol string) error {
@@ -367,6 +429,10 @@ func stopLossTimeInForce(qty float64) string {
 		return "day"
 	}
 	return "gtc"
+}
+
+func hasFractionalQty(qty float64) bool {
+	return qty > 0 && math.Abs(qty-math.Round(qty)) > 1e-9
 }
 
 func parseFloat(value string, fallback float64) float64 {

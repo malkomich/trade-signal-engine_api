@@ -94,7 +94,7 @@ func TestExecuteBuyUsesLimitAndTrailingStopOrders(t *testing.T) {
 					FilledQty:      "4.6545",
 					FilledAvgPrice: "215.70",
 				})
-			case "trailing_stop":
+			case "stop":
 				trailBody = payload
 				_ = json.NewEncoder(w).Encode(alpaca.Order{
 					ID:     "trail-order",
@@ -157,14 +157,14 @@ func TestExecuteBuyUsesLimitAndTrailingStopOrders(t *testing.T) {
 	if got := buyBody["notional"]; got != 1000 {
 		t.Fatalf("expected notional 1000, got %#v", got)
 	}
-	if got := strings.ToLower(strings.TrimSpace(trailBody["type"].(string))); got != "trailing_stop" {
-		t.Fatalf("expected trailing stop order, got %#v", got)
+	if got := strings.ToLower(strings.TrimSpace(trailBody["type"].(string))); got != "stop" {
+		t.Fatalf("expected stop order for fractional protection, got %#v", got)
 	}
-	if got := trailBody["trail_percent"]; got != 0.2 {
-		t.Fatalf("expected trail percent 0.2, got %#v", got)
+	if got := trailBody["stop_price"]; got != 215.27 {
+		t.Fatalf("expected stop price 215.27, got %#v", got)
 	}
-	if got := strings.ToLower(strings.TrimSpace(trailBody["time_in_force"].(string))); got != "gtc" {
-		t.Fatalf("expected gtc trailing stop, got %#v", got)
+	if got := strings.ToLower(strings.TrimSpace(trailBody["time_in_force"].(string))); got != "day" {
+		t.Fatalf("expected day stop order for fractional protection, got %#v", got)
 	}
 	if _, ok := result.Details["stop_order_error"]; ok {
 		t.Fatalf("expected no stop order error details on successful trailing stop")
@@ -254,10 +254,116 @@ func TestExecuteBuyReturnsSuccessWhenTrailingStopFails(t *testing.T) {
 	if result.OrderID != "buy-order" {
 		t.Fatalf("expected buy order id buy-order, got %q", result.OrderID)
 	}
-	if got := result.Details["stop_order_error"]; got == "" {
-		t.Fatalf("expected stop order error details, got %#v", got)
+	if got, ok := result.Details["stop_order_error"].(string); !ok || strings.TrimSpace(got) == "" {
+		t.Fatalf("expected stop order error details, got %#v", result.Details["stop_order_error"])
 	}
 	if cancelCalls != 0 {
 		t.Fatalf("expected no cancel calls during trailing stop submission failure, got %d", cancelCalls)
+	}
+}
+
+func TestExecuteBuyPreservesPartialFillAfterContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	var orderChecks int
+	firstPoll := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/paper/v2/account":
+			_ = json.NewEncoder(w).Encode(alpaca.Account{
+				Status:         "ACTIVE",
+				BuyingPower:    "5000",
+				Cash:           "5000",
+				Equity:         "5000",
+				PortfolioValue: "5000",
+			})
+		case req.Method == http.MethodPost && req.URL.Path == "/paper/v2/orders":
+			var payload map[string]any
+			if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode order payload: %v", err)
+			}
+			switch payload["type"] {
+			case "limit":
+				_ = json.NewEncoder(w).Encode(alpaca.Order{
+					ID:             "buy-order",
+					Status:         "new",
+					Symbol:         "NVDA",
+					Side:           "buy",
+					Type:           "limit",
+					Qty:            "4.6545",
+					FilledQty:      "0",
+					FilledAvgPrice: "0",
+				})
+			case "stop":
+				_ = json.NewEncoder(w).Encode(alpaca.Order{
+					ID:     "trail-order",
+					Status: "new",
+				})
+			default:
+				t.Fatalf("unexpected order type %v", payload["type"])
+			}
+		case req.Method == http.MethodGet && req.URL.Path == "/paper/v2/orders/buy-order":
+			orderChecks++
+			if orderChecks == 1 {
+				close(firstPoll)
+			}
+			_ = json.NewEncoder(w).Encode(alpaca.Order{
+				ID:             "buy-order",
+				Status:         "partially_filled",
+				Symbol:         "NVDA",
+				Side:           "buy",
+				Type:           "limit",
+				Qty:            "4.6545",
+				FilledQty:      "2.0000",
+				FilledAvgPrice: "215.70",
+			})
+		case req.Method == http.MethodDelete && req.URL.Path == "/paper/v2/orders/buy-order":
+			_ = json.NewEncoder(w).Encode(alpaca.Order{})
+		default:
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	go func() {
+		<-firstPoll
+		cancel()
+	}()
+
+	service := NewService(alpaca.NewClient(
+		"paper-key",
+		"paper-secret",
+		"live-key",
+		"live-secret",
+		server.URL+"/paper",
+		server.URL+"/live",
+		5*time.Second,
+	))
+
+	result, err := service.Execute(ctx, model.SessionSummary{
+		ID:                 "session-1",
+		TradingMode:        "paper",
+		TradingAllocations: map[string]float64{"balanced_buy": 1000},
+		TradingStopLossPct: 0.2,
+	}, model.TradingExecutionRequest{
+		SessionID:  "session-1",
+		Symbol:     "NVDA",
+		Action:     "BUY_ALERT",
+		Price:      215.70,
+		SignalTier: "balanced_buy",
+	})
+	if err != nil {
+		t.Fatalf("execute buy with partial fill and cancellation: %v", err)
+	}
+	if result.OrderID != "buy-order" {
+		t.Fatalf("expected buy order id buy-order, got %q", result.OrderID)
+	}
+	if got, ok := result.Details["buy_order_warning"].(string); !ok || strings.TrimSpace(got) == "" {
+		t.Fatalf("expected buy order warning details, got %#v", result.Details["buy_order_warning"])
+	}
+	if got, ok := result.Details["stop_order_error"]; ok {
+		t.Fatalf("expected stop order submission to succeed, got %#v", got)
 	}
 }
