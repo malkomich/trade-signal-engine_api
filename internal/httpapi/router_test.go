@@ -121,7 +121,7 @@ func TestSessionConfigEndpointReturnsSelectedVersion(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/config", nil)
 	rr := httptest.NewRecorder()
 
-	NewRouter(st, nil, nil, slog.Default(), "IXIC", nil).ServeHTTP(rr, req)
+	NewRouter(st, nil, nil, slog.Default(), "IXIC", []string{"https://admin.example.test"}).ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rr.Code)
@@ -787,13 +787,29 @@ func TestSessionTradingAccountEndpointReturnsSelectedModeSnapshot(t *testing.T) 
 	}
 }
 
+func TestSessionTradingAccountEndpointRejectsInvalidMode(t *testing.T) {
+	st := store.NewMemoryStore()
+	if err := st.UpsertSession(context.Background(), model.SessionSummary{ID: "session-1", TradingMode: "paper"}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/trading/account?mode=invalid", nil)
+	rr := httptest.NewRecorder()
+
+	NewRouter(st, nil, nil, slog.Default(), "IXIC", []string{"https://admin.example.test"}).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rr.Code)
+	}
+}
+
 func TestRouterAddsCORSHeadersForPreflightRequests(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/v1/sessions/session-1/trading", nil)
 	req.Header.Set("Origin", "https://admin.example.test")
 	req.Header.Set("Access-Control-Request-Method", http.MethodPut)
 	rr := httptest.NewRecorder()
 
-	NewRouter(store.NewMemoryStore(), nil, nil, slog.Default(), "IXIC", nil).ServeHTTP(rr, req)
+	NewRouter(store.NewMemoryStore(), nil, nil, slog.Default(), "IXIC", []string{"https://admin.example.test"}).ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected status 204, got %d", rr.Code)
