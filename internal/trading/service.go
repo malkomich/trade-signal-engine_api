@@ -16,7 +16,7 @@ import (
 const (
 	DefaultTradingMode        = "paper"
 	DefaultTradingAllocation  = 1000.0
-	DefaultTradingStopLossPct = 0.10
+	DefaultTradingStopLossPct = 0.20
 	maxTradingStopLossPct     = 10.0
 	orderFillPollInterval     = 750 * time.Millisecond
 	orderFillTimeout          = 30 * time.Second
@@ -69,15 +69,19 @@ func (s *Service) Execute(ctx context.Context, session model.SessionSummary, req
 		mode = DefaultTradingMode
 	}
 	settings := normalizeTradingSettings(session)
-	account, err := s.CurrentAccount(ctx, mode)
-	if err != nil {
-		return model.TradingExecutionResult{}, err
-	}
 
 	switch strings.ToUpper(strings.TrimSpace(request.Action)) {
 	case "BUY_ALERT", "BUY":
+		account, err := s.CurrentAccount(ctx, mode)
+		if err != nil {
+			return model.TradingExecutionResult{}, err
+		}
 		return s.executeBuy(ctx, session.ID, mode, settings, request, account)
 	case "SELL_ALERT", "SELL":
+		account := model.TradingAccountSnapshot{Mode: mode}
+		if currentAccount, err := s.CurrentAccount(ctx, mode); err == nil {
+			account = currentAccount
+		}
 		return s.executeSell(ctx, session.ID, mode, request, account)
 	default:
 		return model.TradingExecutionResult{}, fmt.Errorf("unsupported trading action %q", request.Action)
@@ -99,12 +103,17 @@ func (s *Service) executeBuy(
 	if account.BuyingPower > 0 {
 		allocation = math.Min(allocation, account.BuyingPower)
 	}
+	limitPrice := roundStopPrice(request.Price)
+	if limitPrice <= 0 {
+		return model.TradingExecutionResult{}, fmt.Errorf("alpaca buy order %s requires a valid limit price", strings.ToUpper(strings.TrimSpace(request.Symbol)))
+	}
 	order, err := s.client.SubmitOrder(ctx, mode, alpaca.OrderRequest{
 		Symbol:      strings.ToUpper(strings.TrimSpace(request.Symbol)),
 		Side:        "buy",
-		Type:        "market",
+		Type:        "limit",
 		TimeInForce: "day",
 		Notional:    float64Ptr(allocation),
+		LimitPrice:  float64Ptr(limitPrice),
 	})
 	if err != nil {
 		return model.TradingExecutionResult{}, err
@@ -127,18 +136,20 @@ func (s *Service) executeBuy(
 	if filledPrice > 0 && stopLossPct > 0 {
 		stopLossPrice = roundStopPrice(filledPrice * (1.0 - (stopLossPct / 100.0)))
 	}
-	stopOrder := alpaca.Order{}
+	trailingStopOrder := alpaca.Order{}
+	trailingStopError := ""
 	if filledQty > 0 && stopLossPrice > 0 {
-		stopOrder, err = s.client.SubmitOrder(ctx, mode, alpaca.OrderRequest{
-			Symbol:      strings.ToUpper(strings.TrimSpace(request.Symbol)),
-			Side:        "sell",
-			Type:        "stop",
-			TimeInForce: stopLossTimeInForce(filledQty),
-			Qty:         float64Ptr(filledQty),
-			StopPrice:   float64Ptr(stopLossPrice),
+		trailingStopOrder, err = s.client.SubmitOrder(ctx, mode, alpaca.OrderRequest{
+			Symbol:       strings.ToUpper(strings.TrimSpace(request.Symbol)),
+			Side:         "sell",
+			Type:         "trailing_stop",
+			TimeInForce:  "gtc",
+			Qty:          float64Ptr(filledQty),
+			TrailPercent: float64Ptr(stopLossPct),
 		})
 		if err != nil {
-			return model.TradingExecutionResult{}, err
+			trailingStopOrder = alpaca.Order{}
+			trailingStopError = err.Error()
 		}
 	}
 	updatedAccount, err := s.CurrentAccount(ctx, mode)
@@ -159,10 +170,18 @@ func (s *Service) executeBuy(
 		StopLossPrice: stopLossPrice,
 		Account:       &account,
 		SubmittedAt:   time.Now().UTC(),
-		Details: map[string]any{
-			"filled_order_status": filledOrder.Status,
-			"stop_order_id":       stopOrder.ID,
-		},
+		Details: func() map[string]any {
+			details := map[string]any{
+				"filled_order_status": filledOrder.Status,
+				"trail_order_id":      trailingStopOrder.ID,
+				"limit_price":         limitPrice,
+				"trail_percent":       stopLossPct,
+			}
+			if trailingStopError != "" {
+				details["stop_order_error"] = trailingStopError
+			}
+			return details
+		}(),
 	}, nil
 }
 
@@ -216,8 +235,14 @@ func (s *Service) waitForFilledOrder(ctx context.Context, mode, orderID string) 
 		}
 		select {
 		case <-ctx.Done():
+			cancelCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_ = s.client.CancelOrder(cancelCtx, mode, orderID)
+			cancel()
 			return alpaca.Order{}, ctx.Err()
 		case <-deadline.C:
+			cancelCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_ = s.client.CancelOrder(cancelCtx, mode, orderID)
+			cancel()
 			return alpaca.Order{}, fmt.Errorf("alpaca order %s did not fill within %s", orderID, orderFillTimeout)
 		case <-ticker.C:
 		}

@@ -66,18 +66,28 @@ func main() {
 		logger.Info("pushover notifications disabled", "reason", "missing user key or api token")
 	}
 	var tradingService *trading.Service
-	if cfg.AlpacaAPIKeyID != "" && cfg.AlpacaSecretKey != "" {
+	paperConfigured := cfg.AlpacaPaperAPIKey != "" && cfg.AlpacaPaperSecret != "" && cfg.AlpacaPaperTradingURL != ""
+	liveConfigured := cfg.AlpacaLiveAPIKey != "" && cfg.AlpacaLiveSecret != "" && cfg.AlpacaLiveTradingURL != ""
+	if paperConfigured || liveConfigured {
 		alpacaClient := alpaca.NewClient(
-			cfg.AlpacaAPIKeyID,
-			cfg.AlpacaSecretKey,
+			cfg.AlpacaPaperAPIKey,
+			cfg.AlpacaPaperSecret,
+			cfg.AlpacaLiveAPIKey,
+			cfg.AlpacaLiveSecret,
 			cfg.AlpacaPaperTradingURL,
 			cfg.AlpacaLiveTradingURL,
 			10*time.Second,
 		)
 		tradingService = trading.NewService(alpacaClient)
-		logger.Info("alpaca trading enabled", "paper_url", cfg.AlpacaPaperTradingURL, "live_url", cfg.AlpacaLiveTradingURL)
+		logger.Info(
+			"alpaca trading enabled",
+			"paper_configured", paperConfigured,
+			"live_configured", liveConfigured,
+			"paper_url", cfg.AlpacaPaperTradingURL,
+			"live_url", cfg.AlpacaLiveTradingURL,
+		)
 	} else {
-		logger.Info("alpaca trading disabled", "reason", "missing api key or secret")
+		logger.Info("alpaca trading disabled", "reason", "missing paper or live api credentials")
 	}
 
 	srv := &http.Server{
