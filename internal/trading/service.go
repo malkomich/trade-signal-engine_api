@@ -17,7 +17,7 @@ const (
 	DefaultTradingMode        = "paper"
 	DefaultTradingAllocation  = 1000.0
 	DefaultTradingStopLossPct = 0.20
-	maxTradingStopLossPct     = 10.0
+	MaxTradingStopLossPct     = 10.0
 	orderFillPollInterval     = 750 * time.Millisecond
 	orderFillTimeout          = 30 * time.Second
 )
@@ -79,10 +79,13 @@ func (s *Service) Execute(ctx context.Context, session model.SessionSummary, req
 		return s.executeBuy(ctx, session.ID, mode, settings, request, account)
 	case "SELL_ALERT", "SELL":
 		account := model.TradingAccountSnapshot{Mode: mode}
+		accountWarning := ""
 		if currentAccount, err := s.CurrentAccount(ctx, mode); err == nil {
 			account = currentAccount
+		} else {
+			accountWarning = err.Error()
 		}
-		return s.executeSell(ctx, session.ID, mode, request, account)
+		return s.executeSell(ctx, session.ID, mode, request, account, accountWarning)
 	default:
 		return model.TradingExecutionResult{}, fmt.Errorf("unsupported trading action %q", request.Action)
 	}
@@ -191,6 +194,7 @@ func (s *Service) executeSell(
 	mode string,
 	request model.TradingExecutionRequest,
 	account model.TradingAccountSnapshot,
+	accountWarning string,
 ) (model.TradingExecutionResult, error) {
 	symbol := strings.ToUpper(strings.TrimSpace(request.Symbol))
 	if err := s.cancelOpenOrdersForSymbol(ctx, mode, symbol); err != nil {
@@ -210,6 +214,12 @@ func (s *Service) executeSell(
 		Side:        order.Side,
 		Account:     &account,
 		SubmittedAt: time.Now().UTC(),
+		Details: func() map[string]any {
+			if strings.TrimSpace(accountWarning) == "" {
+				return nil
+			}
+			return map[string]any{"current_account_error": accountWarning}
+		}(),
 	}, nil
 }
 
@@ -236,13 +246,19 @@ func (s *Service) waitForFilledOrder(ctx context.Context, mode, orderID string) 
 		select {
 		case <-ctx.Done():
 			cancelCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			_ = s.client.CancelOrder(cancelCtx, mode, orderID)
+			cancelErr := s.client.CancelOrder(cancelCtx, mode, orderID)
 			cancel()
+			if cancelErr != nil {
+				return alpaca.Order{}, fmt.Errorf("context canceled while canceling alpaca order %s: %w", orderID, cancelErr)
+			}
 			return alpaca.Order{}, ctx.Err()
 		case <-deadline.C:
 			cancelCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			_ = s.client.CancelOrder(cancelCtx, mode, orderID)
+			cancelErr := s.client.CancelOrder(cancelCtx, mode, orderID)
 			cancel()
+			if cancelErr != nil {
+				return alpaca.Order{}, fmt.Errorf("alpaca order %s did not fill within %s (cancel failed: %w)", orderID, orderFillTimeout, cancelErr)
+			}
 			return alpaca.Order{}, fmt.Errorf("alpaca order %s did not fill within %s", orderID, orderFillTimeout)
 		case <-ticker.C:
 		}
@@ -296,8 +312,8 @@ func normalizeStopLossPercent(value float64) float64 {
 	if value <= 0 {
 		return DefaultTradingStopLossPct
 	}
-	if value > maxTradingStopLossPct {
-		return maxTradingStopLossPct
+	if value > MaxTradingStopLossPct {
+		return MaxTradingStopLossPct
 	}
 	return value
 }

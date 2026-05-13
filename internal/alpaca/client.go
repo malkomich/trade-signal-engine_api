@@ -109,8 +109,11 @@ func (c *Client) ListOpenOrders(ctx context.Context, mode, symbol string) ([]Ord
 	if !c.configured() {
 		return nil, errors.New("alpaca client not configured")
 	}
-	escapedSymbol := url.QueryEscape(strings.TrimSpace(symbol))
-	body, err := c.do(ctx, http.MethodGet, mode, "/v2/orders?status=open&symbols="+escapedSymbol, nil)
+	trimmedSymbol := strings.TrimSpace(symbol)
+	values := url.Values{}
+	values.Set("status", "open")
+	values.Set("symbols", trimmedSymbol)
+	body, err := c.do(ctx, http.MethodGet, mode, "/v2/orders?"+values.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}

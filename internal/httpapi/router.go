@@ -726,8 +726,8 @@ func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, 
 	if stopLoss <= 0 {
 		stopLoss = trading.DefaultTradingStopLossPct
 	}
-	if stopLoss > 10 {
-		stopLoss = 10
+	if stopLoss > trading.MaxTradingStopLossPct {
+		stopLoss = trading.MaxTradingStopLossPct
 	}
 	session.TradingMode = mode
 	session.TradingAllocations = allocations
@@ -812,8 +812,16 @@ func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request,
 	session.TradingMode = result.Mode
 	session.TradingAccount = result.Account
 	session.TradingUpdatedAt = timePtr(result.SubmittedAt)
-	if err := r.store.UpsertSession(req.Context(), session); err != nil && r.logger != nil {
-		r.logger.Warn("failed to persist trading account snapshot", "session_id", sessionID, "error", err)
+	if err := r.store.UpsertSession(req.Context(), session); err != nil {
+		if r.logger != nil {
+			r.logger.Warn("failed to persist trading execution snapshot", "session_id", sessionID, "error", err)
+		}
+		if result.Details == nil {
+			result.Details = make(map[string]any)
+		}
+		result.Details["session_persist_error"] = err.Error()
+	} else if result.Details != nil {
+		delete(result.Details, "session_persist_error")
 	}
 	if r.logger != nil {
 		if stopOrderError, ok := result.Details["stop_order_error"].(string); ok && strings.TrimSpace(stopOrderError) != "" {
