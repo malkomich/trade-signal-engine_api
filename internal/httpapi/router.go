@@ -35,12 +35,16 @@ type Router struct {
 	allowedOrigins         []string
 }
 
-func NewRouter(st store.Store, notifier notify.Publisher, pushoverNotifier notify.Publisher, logger *slog.Logger, defaultBenchmarkSymbol string, allowedOrigins []string, tradingService *trading.Service) http.Handler {
+func NewRouter(st store.Store, notifier notify.Publisher, pushoverNotifier notify.Publisher, logger *slog.Logger, defaultBenchmarkSymbol string, allowedOrigins []string, tradingService ...*trading.Service) http.Handler {
+	var tradingSvc *trading.Service
+	if len(tradingService) > 0 {
+		tradingSvc = tradingService[0]
+	}
 	r := &Router{
 		store:                  st,
 		notifier:               notifier,
 		pushoverNotifier:       pushoverNotifier,
-		tradingService:         tradingService,
+		tradingService:         tradingSvc,
 		logger:                 logger,
 		defaultBenchmarkSymbol: defaultBenchmarkSymbol,
 		allowedOrigins:         normalizeOrigins(allowedOrigins),
@@ -133,6 +137,7 @@ func (r *Router) root(w http.ResponseWriter, _ *http.Request) {
 			"/v1/sessions/{id}/config",
 			"/v1/sessions/{id}/market-snapshots",
 			"/v1/sessions/{id}/trading",
+			"/v1/sessions/{id}/trading/account",
 			"/v1/sessions/{id}/analytics",
 			"/v1/sessions/{id}/analytics/export",
 			"/v1/sessions/{id}/accept",
@@ -238,6 +243,10 @@ func (r *Router) sessions(w http.ResponseWriter, req *http.Request) {
 			r.sessionTradingUpdate(w, req, sessionID)
 			return
 		}
+	}
+	if len(parts) == 3 && parts[1] == "trading" && parts[2] == "account" && req.Method == http.MethodGet {
+		r.sessionTradingAccount(w, req, sessionID)
+		return
 	}
 	if len(parts) == 3 && parts[1] == "trading" && parts[2] == "execute" && req.Method == http.MethodPost {
 		r.sessionTradingExecute(w, req, sessionID)
@@ -575,7 +584,13 @@ func (r *Router) sessionPushoverNotification(w http.ResponseWriter, req *http.Re
 		writeError(w, http.StatusBadRequest, "unsupported trading action")
 		return
 	}
-	if strings.HasPrefix(action, "BUY") && payload.Price <= 0 {
+	legacyNotification := strings.TrimSpace(payload.Title) != "" &&
+		strings.TrimSpace(payload.Body) != "" &&
+		payload.Price == 0 &&
+		payload.EntryScore == 0 &&
+		payload.ExitScore == 0 &&
+		strings.TrimSpace(payload.SignalTier) == ""
+	if strings.HasPrefix(action, "BUY") && payload.Price <= 0 && !legacyNotification {
 		writeError(w, http.StatusBadRequest, "price is required for buy executions")
 		return
 	}
@@ -679,15 +694,46 @@ func (r *Router) sessionTrading(w http.ResponseWriter, req *http.Request, sessio
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"session_id":                sessionID,
-		"trading_mode":              session.TradingMode,
-		"trading_allocations":       session.TradingAllocations,
-		"trading_stop_loss_percent": session.TradingStopLossPct,
-		"trading_account":           session.TradingAccount,
-		"trading_updated_at":        session.TradingUpdatedAt,
-		"updated_at":                session.UpdatedAt,
-	})
+	writeJSON(w, http.StatusOK, tradingSessionResponse(sessionID, session))
+}
+
+func (r *Router) sessionTradingAccount(w http.ResponseWriter, req *http.Request, sessionID string) {
+	session, err := r.store.GetSession(req.Context(), sessionID)
+	if err == store.ErrNotFound {
+		writeError(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load session")
+		return
+	}
+	if r.tradingService == nil {
+		writeError(w, http.StatusServiceUnavailable, "alpaca trading is not configured")
+		return
+	}
+	mode, modeErr := resolveTradingMode(session.TradingMode, req.URL.Query().Get("mode"))
+	if modeErr != nil {
+		writeError(w, http.StatusBadRequest, modeErr.Error())
+		return
+	}
+	account, accountErr := r.tradingService.CurrentAccount(req.Context(), mode)
+	if accountErr != nil {
+		if r.logger != nil {
+			r.logger.Warn("alpaca account refresh failed", "session_id", sessionID, "mode", mode, "error", accountErr)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"session_id":            sessionID,
+			"trading_mode":          mode,
+			"trading_account":       nil,
+			"trading_account_error": accountErr.Error(),
+			"trading_updated_at":    nil,
+		})
+		return
+	}
+	session.TradingMode = mode
+	session.TradingAccount = &account
+	session.TradingUpdatedAt = timePtr(account.UpdatedAt)
+	writeJSON(w, http.StatusOK, tradingSessionResponse(sessionID, session))
 }
 
 func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, sessionID string) {
@@ -780,15 +826,6 @@ func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request,
 		writeError(w, http.StatusBadRequest, "symbol and action are required")
 		return
 	}
-	action := strings.ToUpper(strings.TrimSpace(payload.Action))
-	if !isSupportedTradingAction(action) {
-		writeError(w, http.StatusBadRequest, "unsupported trading action")
-		return
-	}
-	if strings.HasPrefix(action, "BUY") && payload.Price <= 0 {
-		writeError(w, http.StatusBadRequest, "price is required for buy executions")
-		return
-	}
 	if payload.CreatedAt.IsZero() {
 		payload.CreatedAt = time.Now().UTC()
 	}
@@ -856,6 +893,33 @@ func isSupportedTradingAction(action string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func tradingSessionResponse(sessionID string, session model.SessionSummary) map[string]any {
+	return map[string]any{
+		"session_id":                sessionID,
+		"trading_mode":              session.TradingMode,
+		"trading_allocations":       session.TradingAllocations,
+		"trading_stop_loss_percent": session.TradingStopLossPct,
+		"trading_account":           session.TradingAccount,
+		"trading_updated_at":        session.TradingUpdatedAt,
+		"updated_at":                session.UpdatedAt,
+	}
+}
+
+func resolveTradingMode(sessionMode string, queryMode string) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(queryMode))
+	if mode == "" {
+		mode = strings.ToLower(strings.TrimSpace(sessionMode))
+	}
+	switch mode {
+	case "", "paper":
+		return trading.DefaultTradingMode, nil
+	case "live":
+		return "live", nil
+	default:
+		return "", fmt.Errorf("mode must be paper or live")
 	}
 }
 
@@ -993,6 +1057,9 @@ func normalizeTradingTier(tier string) string {
 }
 
 func timePtr(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
 	return &value
 }
 

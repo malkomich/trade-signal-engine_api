@@ -19,7 +19,7 @@ const (
 	DefaultTradingStopLossPct = 0.20
 	MaxTradingStopLossPct     = 10.0
 	orderFillPollInterval     = 750 * time.Millisecond
-	orderFillTimeout          = 30 * time.Second
+	orderFillTimeout          = 12 * time.Second
 )
 
 type Service struct {
@@ -134,11 +134,13 @@ func (s *Service) executeBuy(
 	if filledQty <= 0 || filledPrice <= 0 {
 		return model.TradingExecutionResult{}, fmt.Errorf("alpaca buy order %s did not return a filled quantity and price", order.ID)
 	}
+
 	stopLossPct := normalizeStopLossPercent(settings.TradingStopLossPct)
 	stopLossPrice := 0.0
 	if filledPrice > 0 && stopLossPct > 0 {
 		stopLossPrice = roundStopPrice(filledPrice * (1.0 - (stopLossPct / 100.0)))
 	}
+
 	trailingStopOrderID := ""
 	trailingStopError := ""
 	if filledQty > 0 && stopLossPrice > 0 {
@@ -178,6 +180,7 @@ func (s *Service) executeBuy(
 			trailingStopOrderID = trailingStopOrder.ID
 		}
 	}
+
 	updatedAccount, accountErr := s.CurrentAccount(ctx, mode)
 	if accountErr == nil {
 		account = updatedAccount
