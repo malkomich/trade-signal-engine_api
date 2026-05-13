@@ -584,7 +584,13 @@ func (r *Router) sessionPushoverNotification(w http.ResponseWriter, req *http.Re
 		writeError(w, http.StatusBadRequest, "unsupported trading action")
 		return
 	}
-	if strings.HasPrefix(action, "BUY") && payload.Price <= 0 {
+	legacyNotification := strings.TrimSpace(payload.Title) != "" &&
+		strings.TrimSpace(payload.Body) != "" &&
+		payload.Price == 0 &&
+		payload.EntryScore == 0 &&
+		payload.ExitScore == 0 &&
+		strings.TrimSpace(payload.SignalTier) == ""
+	if strings.HasPrefix(action, "BUY") && payload.Price <= 0 && !legacyNotification {
 		writeError(w, http.StatusBadRequest, "price is required for buy executions")
 		return
 	}
