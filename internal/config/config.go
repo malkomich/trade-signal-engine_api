@@ -19,8 +19,10 @@ type Config struct {
 	PushoverUserKey        string
 	PushoverAPIToken       string
 	PushoverSound          string
-	AlpacaAPIKeyID         string
-	AlpacaSecretKey        string
+	AlpacaLiveAPIKey       string
+	AlpacaLiveSecret       string
+	AlpacaPaperAPIKey      string
+	AlpacaPaperSecret      string
 	AlpacaPaperTradingURL  string
 	AlpacaLiveTradingURL   string
 	DefaultBenchmarkSymbol string
@@ -39,8 +41,10 @@ func FromEnv() Config {
 		PushoverUserKey:        os.Getenv("PUSHOVER_USER_KEY"),
 		PushoverAPIToken:       os.Getenv("PUSHOVER_API_TOKEN"),
 		PushoverSound:          os.Getenv("PUSHOVER_SOUND"),
-		AlpacaAPIKeyID:         os.Getenv("ALPACA_API_KEY_ID"),
-		AlpacaSecretKey:        os.Getenv("ALPACA_SECRET_KEY"),
+		AlpacaLiveAPIKey:       os.Getenv("ALPACA_LIVE_API_KEY"),
+		AlpacaLiveSecret:       os.Getenv("ALPACA_LIVE_SECRET"),
+		AlpacaPaperAPIKey:      os.Getenv("ALPACA_PAPER_API_KEY"),
+		AlpacaPaperSecret:      os.Getenv("ALPACA_PAPER_SECRET"),
 		AlpacaPaperTradingURL:  getenv("ALPACA_PAPER_TRADING_URL", "https://paper-api.alpaca.markets"),
 		AlpacaLiveTradingURL:   getenv("ALPACA_LIVE_TRADING_URL", "https://api.alpaca.markets"),
 		DefaultBenchmarkSymbol: getenv("MARKET_BENCHMARK_SYMBOL", "IXIC"),

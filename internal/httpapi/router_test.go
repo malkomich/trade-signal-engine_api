@@ -713,8 +713,8 @@ func TestSessionTradingEndpointReturnsDefaultsWithoutTradingService(t *testing.T
 	if got := payload["trading_mode"]; got != "paper" {
 		t.Fatalf("expected default paper mode, got %v", got)
 	}
-	if got := payload["trading_stop_loss_percent"]; got != 0.1 {
-		t.Fatalf("expected default stop loss percent 0.1, got %v", got)
+	if got := payload["trading_stop_loss_percent"]; got != 0.2 {
+		t.Fatalf("expected default stop loss percent 0.2, got %v", got)
 	}
 	allocations, ok := payload["trading_allocations"].(map[string]any)
 	if !ok {
@@ -773,6 +773,56 @@ func TestRouterRejectsDisallowedCORSPreflightRequests(t *testing.T) {
 
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("expected status 403, got %d", rr.Code)
+	}
+}
+
+func TestRouterRejectsDisallowedCORSRequestsForNonPreflightMethods(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/sessions/session-1/trading", strings.NewReader(`{}`))
+	req.Header.Set("Origin", "https://malicious.example.test")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	NewRouter(store.NewMemoryStore(), nil, nil, slog.Default(), "IXIC", []string{"https://admin.example.test"}, nil).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d", rr.Code)
+	}
+}
+
+func TestSessionTradingEndpointNormalizesAllocationKeys(t *testing.T) {
+	st := store.NewMemoryStore()
+	if err := st.UpsertSession(context.Background(), model.SessionSummary{ID: "session-1"}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/sessions/session-1/trading", strings.NewReader(`{"session_id":"session-1","mode":"paper","allocations":{"Conviction Buy":1500," balanced_buy ":1400,"OPPORTUNISTIC_BUY":1300,"speculative_buy":1200},"stop_loss_percent":0.2}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	NewRouter(st, nil, nil, slog.Default(), "IXIC", nil, nil).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected valid json body: %v", err)
+	}
+	allocations, ok := payload["trading_allocations"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected trading_allocations map, got %#v", payload["trading_allocations"])
+	}
+	if got := allocations["conviction_buy"]; got != float64(1500) {
+		t.Fatalf("expected normalized conviction_buy allocation 1500, got %v", got)
+	}
+	if got := allocations["balanced_buy"]; got != float64(1400) {
+		t.Fatalf("expected normalized balanced_buy allocation 1400, got %v", got)
+	}
+	if got := allocations["opportunistic_buy"]; got != float64(1300) {
+		t.Fatalf("expected normalized opportunistic_buy allocation 1300, got %v", got)
+	}
+	if got := allocations["speculative_buy"]; got != float64(1200) {
+		t.Fatalf("expected normalized speculative_buy allocation 1200, got %v", got)
 	}
 }
 

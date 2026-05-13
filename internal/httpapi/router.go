@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path"
 	"sort"
 	"strings"
 	"time"
@@ -60,11 +59,7 @@ func withCORS(next http.Handler, allowedOrigins []string) http.Handler {
 		origin := strings.TrimSpace(req.Header.Get("Origin"))
 		if origin != "" {
 			if !originAllowed(origin, allowedOrigins) {
-				if req.Method == http.MethodOptions {
-					w.WriteHeader(http.StatusForbidden)
-					return
-				}
-				next.ServeHTTP(w, req)
+				w.WriteHeader(http.StatusForbidden)
 				return
 			}
 			w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -109,11 +104,16 @@ func originAllowed(origin string, allowedOrigins []string) bool {
 		if allowed == "*" {
 			return true
 		}
-		matched, err := path.Match(allowed, origin)
-		if err == nil && matched {
+		if allowed == origin {
 			return true
 		}
-		if allowed == origin {
+		if strings.HasSuffix(allowed, ":*") {
+			prefix := strings.TrimSuffix(allowed, "*")
+			if strings.HasPrefix(origin, prefix) {
+				return true
+			}
+		}
+		if strings.EqualFold(strings.TrimRight(allowed, "/"), strings.TrimRight(origin, "/")) {
 			return true
 		}
 	}
@@ -679,7 +679,15 @@ func (r *Router) sessionTrading(w http.ResponseWriter, req *http.Request, sessio
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, tradingSessionResponse(sessionID, session))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"session_id":                sessionID,
+		"trading_mode":              session.TradingMode,
+		"trading_allocations":       session.TradingAllocations,
+		"trading_stop_loss_percent": session.TradingStopLossPct,
+		"trading_account":           session.TradingAccount,
+		"trading_updated_at":        session.TradingUpdatedAt,
+		"updated_at":                session.UpdatedAt,
+	})
 }
 
 func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, sessionID string) {
@@ -718,8 +726,8 @@ func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, 
 	if stopLoss <= 0 {
 		stopLoss = trading.DefaultTradingStopLossPct
 	}
-	if stopLoss > 10 {
-		stopLoss = 10
+	if stopLoss > trading.MaxTradingStopLossPct {
+		stopLoss = trading.MaxTradingStopLossPct
 	}
 	session.TradingMode = mode
 	session.TradingAllocations = allocations
@@ -740,10 +748,22 @@ func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, 
 		writeError(w, http.StatusInternalServerError, "failed to save trading settings")
 		return
 	}
-	writeJSON(w, http.StatusOK, tradingSessionResponse(sessionID, session))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"session_id":                sessionID,
+		"trading_mode":              session.TradingMode,
+		"trading_allocations":       session.TradingAllocations,
+		"trading_stop_loss_percent": session.TradingStopLossPct,
+		"trading_account":           session.TradingAccount,
+		"trading_updated_at":        session.TradingUpdatedAt,
+		"updated_at":                session.UpdatedAt,
+	})
 }
 
 func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request, sessionID string) {
+	if r.tradingService == nil {
+		writeError(w, http.StatusServiceUnavailable, "alpaca trading is not configured")
+		return
+	}
 	var payload model.TradingExecutionRequest
 	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json payload")
@@ -772,10 +792,6 @@ func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request,
 	if payload.CreatedAt.IsZero() {
 		payload.CreatedAt = time.Now().UTC()
 	}
-	if r.tradingService == nil {
-		writeError(w, http.StatusServiceUnavailable, "alpaca trading is not configured")
-		return
-	}
 	session, err := r.store.GetSession(req.Context(), sessionID)
 	if err == store.ErrNotFound {
 		writeError(w, http.StatusNotFound, "session not found")
@@ -796,10 +812,29 @@ func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request,
 	session.TradingMode = result.Mode
 	session.TradingAccount = result.Account
 	session.TradingUpdatedAt = timePtr(result.SubmittedAt)
-	if err := r.store.UpsertSession(req.Context(), session); err != nil && r.logger != nil {
-		r.logger.Warn("failed to persist trading account snapshot", "session_id", sessionID, "error", err)
+	if err := r.store.UpsertSession(req.Context(), session); err != nil {
+		if r.logger != nil {
+			r.logger.Warn("failed to persist trading execution snapshot", "session_id", sessionID, "error", err)
+		}
+		if result.Details == nil {
+			result.Details = make(map[string]any)
+		}
+		result.Details["session_persist_error"] = err.Error()
+	} else if result.Details != nil {
+		delete(result.Details, "session_persist_error")
 	}
 	if r.logger != nil {
+		if stopOrderError, ok := result.Details["stop_order_error"].(string); ok && strings.TrimSpace(stopOrderError) != "" {
+			r.logger.Warn(
+				"alpaca trading order protection submission failed",
+				"session_id", sessionID,
+				"symbol", result.Symbol,
+				"action", result.Action,
+				"mode", result.Mode,
+				"order_id", result.OrderID,
+				"warning", stopOrderError,
+			)
+		}
 		r.logger.Info(
 			"alpaca trading order submitted",
 			"session_id", sessionID,
@@ -813,28 +848,6 @@ func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request,
 		)
 	}
 	writeJSON(w, http.StatusCreated, result)
-}
-
-func tradingSessionResponse(sessionID string, session model.SessionSummary) map[string]any {
-	payload := map[string]any{
-		"session_id":                sessionID,
-		"trading_mode":              session.TradingMode,
-		"trading_allocations":       session.TradingAllocations,
-		"trading_stop_loss_percent": session.TradingStopLossPct,
-		"trading_account":           session.TradingAccount,
-		"updated_at":                session.UpdatedAt,
-	}
-	if session.TradingUpdatedAt != nil {
-		payload["trading_updated_at"] = *session.TradingUpdatedAt
-	}
-	return payload
-}
-
-func timePtr(value time.Time) *time.Time {
-	if value.IsZero() {
-		return nil
-	}
-	return &value
 }
 
 func isSupportedTradingAction(action string) bool {
@@ -960,15 +973,27 @@ func normalizeTradingAllocations(input map[string]float64) map[string]float64 {
 	if len(input) == 0 {
 		return defaults
 	}
+	normalizedInput := make(map[string]float64, len(input))
+	for tier, value := range input {
+		normalizedInput[normalizeTradingTier(tier)] = value
+	}
 	allocations := make(map[string]float64, len(defaults))
 	for tier, fallback := range defaults {
-		value := input[tier]
+		value := normalizedInput[normalizeTradingTier(tier)]
 		if value <= 0 {
 			value = fallback
 		}
 		allocations[tier] = value
 	}
 	return allocations
+}
+
+func normalizeTradingTier(tier string) string {
+	return strings.ToLower(strings.TrimSpace(tier))
+}
+
+func timePtr(value time.Time) *time.Time {
+	return &value
 }
 
 func buildRTDBRecordID(sessionID string, symbol string, action string, timestamp time.Time) string {

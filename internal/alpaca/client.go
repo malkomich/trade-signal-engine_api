@@ -14,11 +14,13 @@ import (
 )
 
 type Client struct {
-	apiKeyID   string
-	secretKey  string
-	paperURL   string
-	liveURL    string
-	httpClient *http.Client
+	paperAPIKeyID string
+	paperSecret   string
+	liveAPIKeyID  string
+	liveSecret    string
+	paperURL      string
+	liveURL       string
+	httpClient    *http.Client
 }
 
 type Account struct {
@@ -30,13 +32,15 @@ type Account struct {
 }
 
 type OrderRequest struct {
-	Symbol      string   `json:"symbol"`
-	Side        string   `json:"side"`
-	Type        string   `json:"type"`
-	TimeInForce string   `json:"time_in_force"`
-	Notional    *float64 `json:"notional,omitempty"`
-	Qty         *float64 `json:"qty,omitempty"`
-	StopPrice   *float64 `json:"stop_price,omitempty"`
+	Symbol       string   `json:"symbol"`
+	Side         string   `json:"side"`
+	Type         string   `json:"type"`
+	TimeInForce  string   `json:"time_in_force"`
+	Notional     *float64 `json:"notional,omitempty"`
+	Qty          *float64 `json:"qty,omitempty"`
+	LimitPrice   *float64 `json:"limit_price,omitempty"`
+	StopPrice    *float64 `json:"stop_price,omitempty"`
+	TrailPercent *float64 `json:"trail_percent,omitempty"`
 }
 
 type Order struct {
@@ -52,21 +56,23 @@ type Order struct {
 	StopPrice      string `json:"stop_price"`
 }
 
-func NewClient(apiKeyID, secretKey, paperURL, liveURL string, timeout time.Duration) *Client {
+func NewClient(paperAPIKeyID, paperSecret, liveAPIKeyID, liveSecret, paperURL, liveURL string, timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
 	return &Client{
-		apiKeyID:   strings.TrimSpace(apiKeyID),
-		secretKey:  strings.TrimSpace(secretKey),
-		paperURL:   strings.TrimRight(strings.TrimSpace(paperURL), "/"),
-		liveURL:    strings.TrimRight(strings.TrimSpace(liveURL), "/"),
-		httpClient: &http.Client{Timeout: timeout},
+		paperAPIKeyID: strings.TrimSpace(paperAPIKeyID),
+		paperSecret:   strings.TrimSpace(paperSecret),
+		liveAPIKeyID:  strings.TrimSpace(liveAPIKeyID),
+		liveSecret:    strings.TrimSpace(liveSecret),
+		paperURL:      strings.TrimRight(strings.TrimSpace(paperURL), "/"),
+		liveURL:       strings.TrimRight(strings.TrimSpace(liveURL), "/"),
+		httpClient:    &http.Client{Timeout: timeout},
 	}
 }
 
 func (c *Client) configured() bool {
-	return c != nil && c.apiKeyID != "" && c.secretKey != "" && (c.paperURL != "" || c.liveURL != "")
+	return c != nil && ((c.paperAPIKeyID != "" && c.paperSecret != "" && c.paperURL != "") || (c.liveAPIKeyID != "" && c.liveSecret != "" && c.liveURL != ""))
 }
 
 func (c *Client) GetAccount(ctx context.Context, mode string) (Account, error) {
@@ -103,8 +109,11 @@ func (c *Client) ListOpenOrders(ctx context.Context, mode, symbol string) ([]Ord
 	if !c.configured() {
 		return nil, errors.New("alpaca client not configured")
 	}
-	escapedSymbol := url.QueryEscape(strings.TrimSpace(symbol))
-	body, err := c.do(ctx, http.MethodGet, mode, "/v2/orders?status=open&symbols="+escapedSymbol, nil)
+	trimmedSymbol := strings.TrimSpace(symbol)
+	values := url.Values{}
+	values.Set("status", "open")
+	values.Set("symbols", trimmedSymbol)
+	body, err := c.do(ctx, http.MethodGet, mode, "/v2/orders?"+values.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +153,11 @@ func (c *Client) ClosePosition(ctx context.Context, mode, symbol string) (Order,
 	if !c.configured() {
 		return Order{}, errors.New("alpaca client not configured")
 	}
-	escaped := url.PathEscape(strings.TrimSpace(symbol))
+	trimmedSymbol := strings.TrimSpace(symbol)
+	if trimmedSymbol == "" {
+		return Order{}, errors.New("alpaca close position requires a symbol")
+	}
+	escaped := url.PathEscape(trimmedSymbol)
 	body, err := c.do(ctx, http.MethodDelete, mode, "/v2/positions/"+escaped, nil)
 	if err != nil {
 		return Order{}, err
@@ -161,6 +174,10 @@ func (c *Client) do(ctx context.Context, method, mode, path string, payload any)
 	if err != nil {
 		return nil, err
 	}
+	apiKeyID, secretKey, err := c.credentials(mode)
+	if err != nil {
+		return nil, err
+	}
 	var reader io.Reader
 	if payload != nil {
 		buf, err := json.Marshal(payload)
@@ -173,8 +190,8 @@ func (c *Client) do(ctx context.Context, method, mode, path string, payload any)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("APCA-API-KEY-ID", c.apiKeyID)
-	req.Header.Set("APCA-API-SECRET-KEY", c.secretKey)
+	req.Header.Set("APCA-API-KEY-ID", apiKeyID)
+	req.Header.Set("APCA-API-SECRET-KEY", secretKey)
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -214,5 +231,23 @@ func (c *Client) baseURL(mode string) (string, error) {
 		return c.liveURL, nil
 	default:
 		return "", fmt.Errorf("unsupported alpaca mode %q", mode)
+	}
+}
+
+func (c *Client) credentials(mode string) (string, string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(mode))
+	switch normalized {
+	case "paper", "":
+		if c.paperAPIKeyID == "" || c.paperSecret == "" {
+			return "", "", errors.New("alpaca paper trading credentials not configured")
+		}
+		return c.paperAPIKeyID, c.paperSecret, nil
+	case "live":
+		if c.liveAPIKeyID == "" || c.liveSecret == "" {
+			return "", "", errors.New("alpaca live trading credentials not configured")
+		}
+		return c.liveAPIKeyID, c.liveSecret, nil
+	default:
+		return "", "", fmt.Errorf("unsupported alpaca mode %q", mode)
 	}
 }
