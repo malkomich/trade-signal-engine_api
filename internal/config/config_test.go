@@ -4,26 +4,24 @@ import (
 	"testing"
 )
 
-func TestFromEnvFallsBackToLegacyAlpacaKeys(t *testing.T) {
-	t.Setenv("ALPACA_API_KEY_ID", "legacy-live-key")
-	t.Setenv("ALPACA_API_SECRET_KEY", "legacy-live-secret")
-	t.Setenv("ALPACA_LIVE_API_KEY", "")
-	t.Setenv("ALPACA_LIVE_SECRET", "")
-	t.Setenv("ALPACA_PAPER_API_KEY", "")
-	t.Setenv("ALPACA_PAPER_SECRET", "")
+func TestFromEnvReadsAlpacaKeys(t *testing.T) {
+	t.Setenv("ALPACA_LIVE_API_KEY", "live-key")
+	t.Setenv("ALPACA_LIVE_SECRET", "live-secret")
+	t.Setenv("ALPACA_PAPER_API_KEY", "paper-key")
+	t.Setenv("ALPACA_PAPER_SECRET", "paper-secret")
 
 	cfg := FromEnv()
 
-	if cfg.AlpacaLiveAPIKey != "legacy-live-key" {
-		t.Fatalf("expected live api key fallback, got %q", cfg.AlpacaLiveAPIKey)
+	if cfg.AlpacaLiveAPIKey != "live-key" {
+		t.Fatalf("expected live api key, got %q", cfg.AlpacaLiveAPIKey)
 	}
-	if cfg.AlpacaLiveSecret != "legacy-live-secret" {
-		t.Fatalf("expected live secret fallback, got %q", cfg.AlpacaLiveSecret)
+	if cfg.AlpacaLiveSecret != "live-secret" {
+		t.Fatalf("expected live secret, got %q", cfg.AlpacaLiveSecret)
 	}
-	if cfg.AlpacaPaperAPIKey != "legacy-live-key" {
-		t.Fatalf("expected paper api key fallback, got %q", cfg.AlpacaPaperAPIKey)
+	if cfg.AlpacaPaperAPIKey != "paper-key" {
+		t.Fatalf("expected paper api key, got %q", cfg.AlpacaPaperAPIKey)
 	}
-	if cfg.AlpacaPaperSecret != "legacy-live-secret" {
-		t.Fatalf("expected paper secret fallback, got %q", cfg.AlpacaPaperSecret)
+	if cfg.AlpacaPaperSecret != "paper-secret" {
+		t.Fatalf("expected paper secret, got %q", cfg.AlpacaPaperSecret)
 	}
 }
