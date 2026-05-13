@@ -122,14 +122,14 @@ func (s *Service) executeBuy(
 		return model.TradingExecutionResult{}, err
 	}
 
-	filledOrder, err := s.waitForFilledOrder(ctx, mode, order.ID)
+	filledOrder, waitErr := s.waitForFilledOrder(ctx, mode, order.ID)
 	filledQty := parseFloat(filledOrder.FilledQty, 0)
 	if filledQty <= 0 {
 		filledQty = parseFloat(filledOrder.Qty, 0)
 	}
 	filledPrice := parseFloat(filledOrder.FilledAvgPrice, 0)
-	if err != nil && (filledQty <= 0 || filledPrice <= 0) {
-		return model.TradingExecutionResult{}, err
+	if waitErr != nil && (filledQty <= 0 || filledPrice <= 0) {
+		return model.TradingExecutionResult{}, waitErr
 	}
 	if filledQty <= 0 || filledPrice <= 0 {
 		return model.TradingExecutionResult{}, fmt.Errorf("alpaca buy order %s did not return a filled quantity and price", order.ID)
@@ -139,11 +139,11 @@ func (s *Service) executeBuy(
 	if filledPrice > 0 && stopLossPct > 0 {
 		stopLossPrice = roundStopPrice(filledPrice * (1.0 - (stopLossPct / 100.0)))
 	}
-	trailingStopOrder := alpaca.Order{}
+	trailingStopOrderID := ""
 	trailingStopError := ""
 	if filledQty > 0 && stopLossPrice > 0 {
 		protectionCtx := ctx
-		if err != nil {
+		if waitErr != nil {
 			var protectionCancel context.CancelFunc
 			protectionCtx, protectionCancel = context.WithTimeout(context.Background(), 5*time.Second)
 			defer protectionCancel()
@@ -163,7 +163,7 @@ func (s *Service) executeBuy(
 		} else {
 			stopOrderRequest.TrailPercent = float64Ptr(stopLossPct)
 		}
-		trailingStopOrder, err = s.client.SubmitOrder(protectionCtx, mode, alpaca.OrderRequest{
+		trailingStopOrder, stopErr := s.client.SubmitOrder(protectionCtx, mode, alpaca.OrderRequest{
 			Symbol:       stopOrderRequest.Symbol,
 			Side:         stopOrderRequest.Side,
 			Type:         stopOrderRequest.Type,
@@ -172,13 +172,14 @@ func (s *Service) executeBuy(
 			StopPrice:    stopOrderRequest.StopPrice,
 			TrailPercent: stopOrderRequest.TrailPercent,
 		})
-		if err != nil {
-			trailingStopOrder = alpaca.Order{}
-			trailingStopError = err.Error()
+		if stopErr != nil {
+			trailingStopError = stopErr.Error()
+		} else {
+			trailingStopOrderID = trailingStopOrder.ID
 		}
 	}
-	updatedAccount, err := s.CurrentAccount(ctx, mode)
-	if err == nil {
+	updatedAccount, accountErr := s.CurrentAccount(ctx, mode)
+	if accountErr == nil {
 		account = updatedAccount
 	}
 
@@ -198,12 +199,12 @@ func (s *Service) executeBuy(
 		Details: func() map[string]any {
 			details := map[string]any{
 				"filled_order_status": filledOrder.Status,
-				"trail_order_id":      trailingStopOrder.ID,
+				"trail_order_id":      trailingStopOrderID,
 				"limit_price":         limitPrice,
 				"trail_percent":       stopLossPct,
 			}
-			if err != nil && filledQty > 0 && filledPrice > 0 {
-				details["buy_order_warning"] = err.Error()
+			if waitErr != nil && filledQty > 0 && filledPrice > 0 {
+				details["buy_order_warning"] = waitErr.Error()
 			}
 			if trailingStopError != "" {
 				details["stop_order_error"] = trailingStopError
