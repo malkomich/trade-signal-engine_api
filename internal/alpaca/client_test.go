@@ -62,7 +62,7 @@ func TestClientUsesModeSpecificCredentials(t *testing.T) {
 	}
 }
 
-func TestClientSerializesLimitAndTrailingStopOrders(t *testing.T) {
+func TestClientSerializesLimitAndStopOrders(t *testing.T) {
 	t.Parallel()
 
 	var orderBodies []map[string]any
@@ -151,14 +151,14 @@ func TestClientSerializesLimitAndTrailingStopOrders(t *testing.T) {
 		t.Fatalf("submit limit order: %v", err)
 	}
 	if _, err := client.SubmitOrder(context.Background(), "live", OrderRequest{
-		Symbol:       "NVDA",
-		Side:         "sell",
-		Type:         "trailing_stop",
-		TimeInForce:  "gtc",
-		Qty:          float64Ptr(5),
-		TrailPercent: float64Ptr(0.2),
+		Symbol:      "NVDA",
+		Side:        "sell",
+		Type:        "stop",
+		TimeInForce: "gtc",
+		Qty:         float64Ptr(5),
+		StopPrice:   float64Ptr(215.27),
 	}); err != nil {
-		t.Fatalf("submit trailing stop order: %v", err)
+		t.Fatalf("submit stop order: %v", err)
 	}
 
 	if len(orderBodies) != 2 {
@@ -167,8 +167,8 @@ func TestClientSerializesLimitAndTrailingStopOrders(t *testing.T) {
 	if got := orderBodies[0]["limit_price"]; got != 215.7 {
 		t.Fatalf("expected limit_price 215.7, got %#v", got)
 	}
-	if got := orderBodies[1]["trail_percent"]; got != 0.2 {
-		t.Fatalf("expected trail_percent 0.2, got %#v", got)
+	if got := orderBodies[1]["stop_price"]; got != 215.27 {
+		t.Fatalf("expected stop_price 215.27, got %#v", got)
 	}
 }
 
