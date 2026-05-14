@@ -69,6 +69,7 @@ func (s *Service) Execute(ctx context.Context, session model.SessionSummary, req
 		mode = DefaultTradingMode
 	}
 	settings := normalizeTradingSettings(session)
+	symbol := strings.ToUpper(strings.TrimSpace(request.Symbol))
 
 	switch strings.ToUpper(strings.TrimSpace(request.Action)) {
 	case "BUY_ALERT", "BUY":
@@ -76,7 +77,7 @@ func (s *Service) Execute(ctx context.Context, session model.SessionSummary, req
 		if err != nil {
 			return model.TradingExecutionResult{}, err
 		}
-		return s.executeBuy(ctx, session.ID, mode, settings, request, account)
+		return s.executeBuy(ctx, session.ID, mode, settings, request, symbol, account)
 	case "SELL_ALERT", "SELL":
 		account := model.TradingAccountSnapshot{Mode: mode}
 		accountWarning := ""
@@ -85,7 +86,7 @@ func (s *Service) Execute(ctx context.Context, session model.SessionSummary, req
 		} else {
 			accountWarning = err.Error()
 		}
-		return s.executeSell(ctx, session.ID, mode, request, account, accountWarning)
+		return s.executeSell(ctx, session.ID, mode, request, symbol, account, accountWarning)
 	default:
 		return model.TradingExecutionResult{}, fmt.Errorf("unsupported trading action %q", request.Action)
 	}
@@ -97,6 +98,7 @@ func (s *Service) executeBuy(
 	mode string,
 	settings model.SessionSummary,
 	request model.TradingExecutionRequest,
+	symbol string,
 	account model.TradingAccountSnapshot,
 ) (model.TradingExecutionResult, error) {
 	allocation := allocationForTier(settings.TradingAllocations, request.SignalTier)
@@ -108,10 +110,10 @@ func (s *Service) executeBuy(
 	}
 	limitPrice := roundStopPrice(request.Price)
 	if limitPrice <= 0 {
-		return model.TradingExecutionResult{}, fmt.Errorf("alpaca buy order %s requires a valid limit price", strings.ToUpper(strings.TrimSpace(request.Symbol)))
+		return model.TradingExecutionResult{}, fmt.Errorf("alpaca buy order %s requires a valid limit price", symbol)
 	}
 	order, err := s.client.SubmitOrder(ctx, mode, alpaca.OrderRequest{
-		Symbol:      strings.ToUpper(strings.TrimSpace(request.Symbol)),
+		Symbol:      symbol,
 		Side:        "buy",
 		Type:        "limit",
 		TimeInForce: "day",
@@ -151,7 +153,7 @@ func (s *Service) executeBuy(
 			defer protectionCancel()
 		}
 		stopOrderRequest := alpaca.OrderRequest{
-			Symbol:      strings.ToUpper(strings.TrimSpace(request.Symbol)),
+			Symbol:      symbol,
 			Side:        "sell",
 			Type:        "stop",
 			TimeInForce: stopLossTimeInForce(filledQty),
@@ -174,7 +176,7 @@ func (s *Service) executeBuy(
 	return model.TradingExecutionResult{
 		Status:        "submitted",
 		SessionID:     sessionID,
-		Symbol:        strings.ToUpper(strings.TrimSpace(request.Symbol)),
+		Symbol:        symbol,
 		Action:        strings.ToUpper(strings.TrimSpace(request.Action)),
 		Mode:          mode,
 		OrderID:       order.ID,
@@ -207,10 +209,10 @@ func (s *Service) executeSell(
 	sessionID string,
 	mode string,
 	request model.TradingExecutionRequest,
+	symbol string,
 	account model.TradingAccountSnapshot,
 	accountWarning string,
 ) (model.TradingExecutionResult, error) {
-	symbol := strings.ToUpper(strings.TrimSpace(request.Symbol))
 	if err := s.cancelOpenOrdersForSymbol(ctx, mode, symbol); err != nil {
 		return model.TradingExecutionResult{}, err
 	}

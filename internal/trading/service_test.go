@@ -177,6 +177,99 @@ func TestExecuteBuyUsesLimitAndStopOrders(t *testing.T) {
 	}
 }
 
+func TestExecuteBuyUsesGTCForWholeShareStops(t *testing.T) {
+	t.Parallel()
+
+	var stopBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/paper/v2/account":
+			_ = json.NewEncoder(w).Encode(alpaca.Account{
+				Status:         "ACTIVE",
+				BuyingPower:    "5000",
+				Cash:           "5000",
+				Equity:         "5000",
+				PortfolioValue: "5000",
+			})
+		case req.Method == http.MethodPost && req.URL.Path == "/paper/v2/orders":
+			var payload map[string]any
+			if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode order payload: %v", err)
+			}
+			switch payload["type"] {
+			case "limit":
+				_ = json.NewEncoder(w).Encode(alpaca.Order{
+					ID:             "buy-order",
+					Status:         "filled",
+					Symbol:         "TSLA",
+					Side:           "buy",
+					Type:           "limit",
+					Qty:            "5",
+					FilledQty:      "5",
+					FilledAvgPrice: "444.06",
+				})
+			case "stop":
+				stopBody = payload
+				_ = json.NewEncoder(w).Encode(alpaca.Order{
+					ID:     "stop-order",
+					Status: "new",
+				})
+			default:
+				t.Fatalf("unexpected order type %v", payload["type"])
+			}
+		case req.Method == http.MethodGet && req.URL.Path == "/paper/v2/orders/buy-order":
+			_ = json.NewEncoder(w).Encode(alpaca.Order{
+				ID:             "buy-order",
+				Status:         "filled",
+				Symbol:         "TSLA",
+				Side:           "buy",
+				Type:           "limit",
+				Qty:            "5",
+				FilledQty:      "5",
+				FilledAvgPrice: "444.06",
+			})
+		default:
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	service := NewService(alpaca.NewClient(
+		"paper-key",
+		"paper-secret",
+		"live-key",
+		"live-secret",
+		server.URL+"/paper",
+		server.URL+"/live",
+		5*time.Second,
+	))
+
+	result, err := service.Execute(context.Background(), model.SessionSummary{
+		ID:                 "session-1",
+		TradingMode:        "paper",
+		TradingAllocations: map[string]float64{"balanced_buy": 1000},
+		TradingStopLossPct: 0.2,
+	}, model.TradingExecutionRequest{
+		SessionID:  "session-1",
+		Symbol:     "TSLA",
+		Action:     "BUY_ALERT",
+		Price:      444.06,
+		SignalTier: "balanced_buy",
+	})
+	if err != nil {
+		t.Fatalf("execute whole-share buy: %v", err)
+	}
+	if got := result.Details["stop_order_id"]; got != "stop-order" {
+		t.Fatalf("expected stop order id stop-order, got %#v", got)
+	}
+	if got := stopBody["time_in_force"]; got != "gtc" {
+		t.Fatalf("expected gtc stop order for whole shares, got %#v", got)
+	}
+	if got := stopBody["stop_price"]; got != 443.17 {
+		t.Fatalf("expected stop price 443.17, got %#v", got)
+	}
+}
+
 func TestExecuteBuyReturnsSuccessWhenStopFails(t *testing.T) {
 	t.Parallel()
 
