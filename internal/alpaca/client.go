@@ -32,15 +32,14 @@ type Account struct {
 }
 
 type OrderRequest struct {
-	Symbol       string   `json:"symbol"`
-	Side         string   `json:"side"`
-	Type         string   `json:"type"`
-	TimeInForce  string   `json:"time_in_force"`
-	Notional     *float64 `json:"notional,omitempty"`
-	Qty          *float64 `json:"qty,omitempty"`
-	LimitPrice   *float64 `json:"limit_price,omitempty"`
-	StopPrice    *float64 `json:"stop_price,omitempty"`
-	TrailPercent *float64 `json:"trail_percent,omitempty"`
+	Symbol      string   `json:"symbol"`
+	Side        string   `json:"side"`
+	Type        string   `json:"type"`
+	TimeInForce string   `json:"time_in_force"`
+	Notional    *float64 `json:"notional,omitempty"`
+	Qty         *float64 `json:"qty,omitempty"`
+	LimitPrice  *float64 `json:"limit_price,omitempty"`
+	StopPrice   *float64 `json:"stop_price,omitempty"`
 }
 
 type Order struct {

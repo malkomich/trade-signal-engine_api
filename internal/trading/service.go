@@ -141,8 +141,8 @@ func (s *Service) executeBuy(
 		stopLossPrice = roundStopPrice(filledPrice * (1.0 - (stopLossPct / 100.0)))
 	}
 
-	trailingStopOrderID := ""
-	trailingStopError := ""
+	stopOrderID := ""
+	stopOrderError := ""
 	if filledQty > 0 && stopLossPrice > 0 {
 		protectionCtx := ctx
 		if waitErr != nil {
@@ -150,34 +150,19 @@ func (s *Service) executeBuy(
 			protectionCtx, protectionCancel = context.WithTimeout(context.Background(), 5*time.Second)
 			defer protectionCancel()
 		}
-		stopOrderType := "trailing_stop"
 		stopOrderRequest := alpaca.OrderRequest{
 			Symbol:      strings.ToUpper(strings.TrimSpace(request.Symbol)),
 			Side:        "sell",
-			Type:        stopOrderType,
+			Type:        "stop",
 			TimeInForce: stopLossTimeInForce(filledQty),
 			Qty:         float64Ptr(filledQty),
+			StopPrice:   float64Ptr(stopLossPrice),
 		}
-		if hasFractionalQty(filledQty) {
-			stopOrderType = "stop"
-			stopOrderRequest.Type = stopOrderType
-			stopOrderRequest.StopPrice = float64Ptr(stopLossPrice)
-		} else {
-			stopOrderRequest.TrailPercent = float64Ptr(stopLossPct)
-		}
-		trailingStopOrder, stopErr := s.client.SubmitOrder(protectionCtx, mode, alpaca.OrderRequest{
-			Symbol:       stopOrderRequest.Symbol,
-			Side:         stopOrderRequest.Side,
-			Type:         stopOrderRequest.Type,
-			TimeInForce:  stopOrderRequest.TimeInForce,
-			Qty:          stopOrderRequest.Qty,
-			StopPrice:    stopOrderRequest.StopPrice,
-			TrailPercent: stopOrderRequest.TrailPercent,
-		})
+		stopOrder, stopErr := s.client.SubmitOrder(protectionCtx, mode, stopOrderRequest)
 		if stopErr != nil {
-			trailingStopError = stopErr.Error()
+			stopOrderError = stopErr.Error()
 		} else {
-			trailingStopOrderID = trailingStopOrder.ID
+			stopOrderID = stopOrder.ID
 		}
 	}
 
@@ -202,15 +187,15 @@ func (s *Service) executeBuy(
 		Details: func() map[string]any {
 			details := map[string]any{
 				"filled_order_status": filledOrder.Status,
-				"trail_order_id":      trailingStopOrderID,
+				"stop_order_id":       stopOrderID,
 				"limit_price":         limitPrice,
-				"trail_percent":       stopLossPct,
+				"stop_loss_percent":   stopLossPct,
 			}
 			if waitErr != nil && filledQty > 0 && filledPrice > 0 {
 				details["buy_order_warning"] = waitErr.Error()
 			}
-			if trailingStopError != "" {
-				details["stop_order_error"] = trailingStopError
+			if stopOrderError != "" {
+				details["stop_order_error"] = stopOrderError
 			}
 			return details
 		}(),
@@ -433,10 +418,6 @@ func stopLossTimeInForce(qty float64) string {
 		return "day"
 	}
 	return "gtc"
-}
-
-func hasFractionalQty(qty float64) bool {
-	return qty > 0 && math.Abs(qty-math.Round(qty)) > 1e-9
 }
 
 func parseFloat(value string, fallback float64) float64 {

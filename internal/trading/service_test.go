@@ -61,11 +61,11 @@ func TestStopLossTimeInForce(t *testing.T) {
 	}
 }
 
-func TestExecuteBuyUsesLimitAndTrailingStopOrders(t *testing.T) {
+func TestExecuteBuyUsesLimitAndStopOrders(t *testing.T) {
 	t.Parallel()
 
 	var buyBody map[string]any
-	var trailBody map[string]any
+	var stopBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/paper/v2/account":
@@ -95,7 +95,7 @@ func TestExecuteBuyUsesLimitAndTrailingStopOrders(t *testing.T) {
 					FilledAvgPrice: "215.70",
 				})
 			case "stop":
-				trailBody = payload
+				stopBody = payload
 				_ = json.NewEncoder(w).Encode(alpaca.Order{
 					ID:     "trail-order",
 					Status: "new",
@@ -157,21 +157,27 @@ func TestExecuteBuyUsesLimitAndTrailingStopOrders(t *testing.T) {
 	if got := buyBody["notional"]; got != 1000 {
 		t.Fatalf("expected notional 1000, got %#v", got)
 	}
-	if got := strings.ToLower(strings.TrimSpace(trailBody["type"].(string))); got != "stop" {
-		t.Fatalf("expected stop order for fractional protection, got %#v", got)
+	if got := strings.ToLower(strings.TrimSpace(stopBody["type"].(string))); got != "stop" {
+		t.Fatalf("expected stop order for protection, got %#v", got)
 	}
-	if got := trailBody["stop_price"]; got != 215.27 {
+	if got := stopBody["stop_price"]; got != 215.27 {
 		t.Fatalf("expected stop price 215.27, got %#v", got)
 	}
-	if got := strings.ToLower(strings.TrimSpace(trailBody["time_in_force"].(string))); got != "day" {
+	if got := strings.ToLower(strings.TrimSpace(stopBody["time_in_force"].(string))); got != "day" {
 		t.Fatalf("expected day stop order for fractional protection, got %#v", got)
 	}
+	if got := result.Details["stop_loss_percent"]; got != 0.2 {
+		t.Fatalf("expected stop loss percent 0.2, got %#v", got)
+	}
+	if got := result.Details["stop_order_id"]; got != "trail-order" {
+		t.Fatalf("expected stop order id trail-order, got %#v", got)
+	}
 	if _, ok := result.Details["stop_order_error"]; ok {
-		t.Fatalf("expected no stop order error details on successful trailing stop")
+		t.Fatalf("expected no stop order error details on successful stop protection")
 	}
 }
 
-func TestExecuteBuyReturnsSuccessWhenTrailingStopFails(t *testing.T) {
+func TestExecuteBuyReturnsSuccessWhenStopFails(t *testing.T) {
 	t.Parallel()
 
 	var cancelCalls int
@@ -249,7 +255,7 @@ func TestExecuteBuyReturnsSuccessWhenTrailingStopFails(t *testing.T) {
 		SignalTier: "balanced_buy",
 	})
 	if err != nil {
-		t.Fatalf("execute buy with trailing stop failure: %v", err)
+		t.Fatalf("execute buy with stop protection failure: %v", err)
 	}
 	if result.OrderID != "buy-order" {
 		t.Fatalf("expected buy order id buy-order, got %q", result.OrderID)
@@ -258,7 +264,7 @@ func TestExecuteBuyReturnsSuccessWhenTrailingStopFails(t *testing.T) {
 		t.Fatalf("expected stop order error details, got %#v", result.Details["stop_order_error"])
 	}
 	if cancelCalls != 0 {
-		t.Fatalf("expected no cancel calls during trailing stop submission failure, got %d", cancelCalls)
+		t.Fatalf("expected no cancel calls during stop submission failure, got %d", cancelCalls)
 	}
 }
 
