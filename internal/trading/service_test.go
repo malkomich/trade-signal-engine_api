@@ -82,14 +82,14 @@ func TestExecuteBuyUsesLimitAndStopOrders(t *testing.T) {
 				t.Fatalf("decode order payload: %v", err)
 			}
 			switch payload["type"] {
-			case "limit":
+			case "market":
 				buyBody = payload
 				_ = json.NewEncoder(w).Encode(alpaca.Order{
 					ID:             "buy-order",
 					Status:         "filled",
 					Symbol:         "NVDA",
 					Side:           "buy",
-					Type:           "limit",
+					Type:           "market",
 					Qty:            "4.6545",
 					FilledQty:      "4.6545",
 					FilledAvgPrice: "215.70",
@@ -109,7 +109,7 @@ func TestExecuteBuyUsesLimitAndStopOrders(t *testing.T) {
 				Status:         "filled",
 				Symbol:         "NVDA",
 				Side:           "buy",
-				Type:           "limit",
+				Type:           "market",
 				Qty:            "4.6545",
 				FilledQty:      "4.6545",
 				FilledAvgPrice: "215.70",
@@ -148,11 +148,11 @@ func TestExecuteBuyUsesLimitAndStopOrders(t *testing.T) {
 	if result.StopLossPrice != 215.27 {
 		t.Fatalf("expected stop loss price 215.27, got %v", result.StopLossPrice)
 	}
-	if got := buyBody["type"]; got != "limit" {
-		t.Fatalf("expected limit buy order, got %#v", got)
+	if got := buyBody["type"]; got != "market" {
+		t.Fatalf("expected market buy order, got %#v", got)
 	}
-	if got := buyBody["limit_price"]; got != 215.7 {
-		t.Fatalf("expected limit price 215.7, got %#v", got)
+	if _, ok := buyBody["limit_price"]; ok {
+		t.Fatalf("expected no limit price for market buy order, got %#v", buyBody["limit_price"])
 	}
 	if got := buyBody["notional"]; got != 1000 {
 		t.Fatalf("expected notional 1000, got %#v", got)
@@ -197,13 +197,13 @@ func TestExecuteBuyUsesGTCForWholeShareStops(t *testing.T) {
 				t.Fatalf("decode order payload: %v", err)
 			}
 			switch payload["type"] {
-			case "limit":
+			case "market":
 				_ = json.NewEncoder(w).Encode(alpaca.Order{
 					ID:             "buy-order",
 					Status:         "filled",
 					Symbol:         "TSLA",
 					Side:           "buy",
-					Type:           "limit",
+					Type:           "market",
 					Qty:            "5",
 					FilledQty:      "5",
 					FilledAvgPrice: "444.06",
@@ -223,7 +223,7 @@ func TestExecuteBuyUsesGTCForWholeShareStops(t *testing.T) {
 				Status:         "filled",
 				Symbol:         "TSLA",
 				Side:           "buy",
-				Type:           "limit",
+				Type:           "market",
 				Qty:            "5",
 				FilledQty:      "5",
 				FilledAvgPrice: "444.06",
@@ -289,13 +289,13 @@ func TestExecuteBuyReturnsSuccessWhenStopFails(t *testing.T) {
 			if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
 				t.Fatalf("decode order payload: %v", err)
 			}
-			if payload["type"] == "limit" {
+			if payload["type"] == "market" {
 				_ = json.NewEncoder(w).Encode(alpaca.Order{
 					ID:             "buy-order",
 					Status:         "filled",
 					Symbol:         "NVDA",
 					Side:           "buy",
-					Type:           "limit",
+					Type:           "market",
 					Qty:            "4.6545",
 					FilledQty:      "4.6545",
 					FilledAvgPrice: "215.70",
@@ -309,7 +309,7 @@ func TestExecuteBuyReturnsSuccessWhenStopFails(t *testing.T) {
 				Status:         "filled",
 				Symbol:         "NVDA",
 				Side:           "buy",
-				Type:           "limit",
+				Type:           "market",
 				Qty:            "4.6545",
 				FilledQty:      "4.6545",
 				FilledAvgPrice: "215.70",
@@ -384,13 +384,13 @@ func TestExecuteBuyPreservesPartialFillAfterContextCancellation(t *testing.T) {
 				t.Fatalf("decode order payload: %v", err)
 			}
 			switch payload["type"] {
-			case "limit":
+			case "market":
 				_ = json.NewEncoder(w).Encode(alpaca.Order{
 					ID:             "buy-order",
 					Status:         "new",
 					Symbol:         "NVDA",
 					Side:           "buy",
-					Type:           "limit",
+					Type:           "market",
 					Qty:            "4.6545",
 					FilledQty:      "0",
 					FilledAvgPrice: "0",
@@ -413,7 +413,7 @@ func TestExecuteBuyPreservesPartialFillAfterContextCancellation(t *testing.T) {
 				Status:         "partially_filled",
 				Symbol:         "NVDA",
 				Side:           "buy",
-				Type:           "limit",
+				Type:           "market",
 				Qty:            "4.6545",
 				FilledQty:      "2.0000",
 				FilledAvgPrice: "215.70",
