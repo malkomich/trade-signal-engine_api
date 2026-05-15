@@ -761,19 +761,18 @@ func (r *Router) sessionTradingAccount(w http.ResponseWriter, req *http.Request,
 			"trading_account_error": accountErr.Error(),
 			"trading_updated_at":    nil,
 		}
-		if session.TradingAccount != nil {
+		if session.TradingAccount != nil && strings.EqualFold(strings.TrimSpace(session.TradingAccount.Mode), mode) {
 			payload["trading_account"] = session.TradingAccount
-			payload["trading_updated_at"] = session.TradingUpdatedAt
+			if session.TradingUpdatedAt != nil {
+				payload["trading_updated_at"] = session.TradingUpdatedAt
+			}
 		}
 		writeJSON(w, http.StatusOK, payload)
 		return
 	}
 	session.TradingMode = mode
 	session.TradingAccount = &account
-	session.TradingUpdatedAt = timePtr(account.UpdatedAt)
-	if err := r.store.UpsertSession(req.Context(), session); err != nil && r.logger != nil {
-		r.logger.Warn("failed to persist trading account snapshot", "session_id", sessionID, "error", err)
-	}
+	session.TradingUpdatedAt = timePtr(time.Now().UTC())
 	writeJSON(w, http.StatusOK, tradingSessionResponse(sessionID, session))
 }
 
@@ -854,7 +853,7 @@ func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, 
 			}
 		} else {
 			session.TradingAccount = &account
-			session.TradingUpdatedAt = timePtr(account.UpdatedAt)
+			session.TradingUpdatedAt = timePtr(time.Now().UTC())
 		}
 	}
 	if err := r.store.UpsertSession(req.Context(), session); err != nil {

@@ -798,11 +798,11 @@ func TestSessionTradingAccountEndpointReturnsSelectedModeSnapshot(t *testing.T) 
 	if err != nil {
 		t.Fatalf("expected stored session after account refresh: %v", err)
 	}
-	if storedSession.TradingAccount == nil {
-		t.Fatalf("expected stored trading account after refresh")
+	if storedSession.TradingAccount != nil {
+		t.Fatalf("expected refresh endpoint to avoid persisting trading account snapshot")
 	}
-	if got := storedSession.TradingAccount.Status; got != "ACTIVE" {
-		t.Fatalf("expected stored active account, got %v", got)
+	if storedSession.TradingUpdatedAt != nil {
+		t.Fatalf("expected refresh endpoint to avoid persisting trading updated_at")
 	}
 }
 
@@ -865,6 +865,67 @@ func TestSessionTradingAccountEndpointFallsBackToStoredSnapshotOnRefreshError(t 
 	}
 	if got := payload["trading_account_error"]; got == nil {
 		t.Fatalf("expected trading_account_error to be present")
+	}
+	if got := payload["trading_updated_at"]; got == nil {
+		t.Fatalf("expected trading_updated_at to be present")
+	}
+}
+
+func TestSessionTradingAccountEndpointDoesNotReuseStoredSnapshotFromDifferentMode(t *testing.T) {
+	st := store.NewMemoryStore()
+	storedAccount := model.TradingAccountSnapshot{
+		Mode:           "paper",
+		Status:         "ACTIVE",
+		BuyingPower:    2345.67,
+		Cash:           890.12,
+		Equity:         4567.89,
+		PortfolioValue: 5678.90,
+		UpdatedAt:      time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC),
+	}
+	if err := st.UpsertSession(context.Background(), model.SessionSummary{
+		ID:               "session-1",
+		TradingMode:      "live",
+		TradingAccount:   &storedAccount,
+		TradingUpdatedAt: func() *time.Time { t := storedAccount.UpdatedAt; return &t }(),
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodGet || req.URL.Path != "/live/v2/account" {
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.Path)
+		}
+		http.Error(w, "alpaca unavailable", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+
+	service := trading.NewService(alpaca.NewClient(
+		"paper-key",
+		"paper-secret",
+		"live-key",
+		"live-secret",
+		server.URL+"/paper",
+		server.URL+"/live",
+		5*time.Second,
+	))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/trading/account?mode=live", nil)
+	rr := httptest.NewRecorder()
+
+	NewRouter(st, nil, nil, slog.Default(), "IXIC", nil, service).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected valid json body: %v", err)
+	}
+	if got := payload["trading_account"]; got != nil {
+		t.Fatalf("expected no fallback trading account for mismatched mode, got %v", got)
+	}
+	if got := payload["trading_updated_at"]; got != nil {
+		t.Fatalf("expected no trading_updated_at for mismatched mode fallback, got %v", got)
 	}
 }
 
