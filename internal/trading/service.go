@@ -15,6 +15,7 @@ import (
 
 const (
 	DefaultTradingMode        = "paper"
+	DefaultPositionMode       = "stop_loss"
 	DefaultTradingAllocation  = 1000.0
 	DefaultTradingStopLossPct = 0.20
 	MaxTradingStopLossPct     = 10.0
@@ -109,6 +110,9 @@ func (s *Service) executeBuy(
 		allocation = math.Min(allocation, account.BuyingPower)
 	}
 	limitPrice := roundStopPrice(request.Price)
+	if request.LimitPrice > 0 {
+		limitPrice = roundStopPrice(request.LimitPrice)
+	}
 	if limitPrice <= 0 {
 		return model.TradingExecutionResult{}, fmt.Errorf("alpaca buy order %s requires a valid limit price", symbol)
 	}
@@ -138,6 +142,10 @@ func (s *Service) executeBuy(
 	}
 
 	stopLossPct := normalizeStopLossPercent(settings.TradingStopLossPct)
+	positionMode := normalizePositionMode(settings.TradingPositionMode)
+	if positionMode != DefaultPositionMode {
+		stopLossPct = 0
+	}
 	stopLossPrice := 0.0
 	if filledPrice > 0 && stopLossPct > 0 {
 		stopLossPrice = roundStopPrice(filledPrice * (1.0 - (stopLossPct / 100.0)))
@@ -183,6 +191,7 @@ func (s *Service) executeBuy(
 		Side:          order.Side,
 		Quantity:      filledQty,
 		Notional:      allocation,
+		FilledAvgPrice: filledPrice,
 		StopLossPrice: stopLossPrice,
 		Account:       &account,
 		SubmittedAt:   time.Now().UTC(),
@@ -192,6 +201,7 @@ func (s *Service) executeBuy(
 				"stop_order_id":       stopOrderID,
 				"limit_price":         limitPrice,
 				"stop_loss_percent":   stopLossPct,
+				"position_mode":       positionMode,
 			}
 			if waitErr != nil && filledQty > 0 && filledPrice > 0 {
 				details["buy_order_warning"] = waitErr.Error()
@@ -342,13 +352,32 @@ func normalizeTradingSettings(session model.SessionSummary) model.SessionSummary
 	if normalizeMode(session.TradingMode) == "" {
 		session.TradingMode = DefaultTradingMode
 	}
+	if normalizePositionMode(session.TradingPositionMode) == "" {
+		session.TradingPositionMode = DefaultPositionMode
+	}
 	if len(session.TradingAllocations) == 0 {
 		session.TradingAllocations = DefaultTradingAllocations()
 	}
 	if session.TradingStopLossPct <= 0 {
 		session.TradingStopLossPct = DefaultTradingStopLossPct
 	}
+	if session.TradingRebuyMinDropPct <= 0 {
+		session.TradingRebuyMinDropPct = 0.5
+	}
+	if session.TradingRebuyMaxCount <= 0 {
+		session.TradingRebuyMaxCount = 2
+	}
 	return session
+}
+
+func normalizePositionMode(mode string) string {
+	normalized := strings.ToLower(strings.TrimSpace(mode))
+	switch normalized {
+	case "stop_loss", "rebuy", "none":
+		return normalized
+	default:
+		return ""
+	}
 }
 
 func normalizeMode(mode string) string {

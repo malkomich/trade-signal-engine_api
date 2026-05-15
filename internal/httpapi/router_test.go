@@ -715,8 +715,17 @@ func TestSessionTradingEndpointReturnsDefaultsWithoutTradingService(t *testing.T
 	if got := payload["trading_mode"]; got != "paper" {
 		t.Fatalf("expected default paper mode, got %v", got)
 	}
+	if got := payload["trading_position_mode"]; got != "stop_loss" {
+		t.Fatalf("expected default stop loss position mode, got %v", got)
+	}
 	if got := payload["trading_stop_loss_percent"]; got != 0.2 {
 		t.Fatalf("expected default stop loss percent 0.2, got %v", got)
+	}
+	if got := payload["trading_rebuy_min_drop_percent"]; got != 0.5 {
+		t.Fatalf("expected default rebuy min drop percent 0.5, got %v", got)
+	}
+	if got := payload["trading_rebuy_max_rebuys"]; got != 2 {
+		t.Fatalf("expected default rebuy max rebuys 2, got %v", got)
 	}
 	allocations, ok := payload["trading_allocations"].(map[string]any)
 	if !ok {

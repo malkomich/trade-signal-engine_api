@@ -486,22 +486,44 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 	session.Symbols = appendUniqueSymbol(session.Symbols, payload.Symbol)
 	switch action {
 	case "accept":
-		window := model.TradeWindow{
-			ID:              buildRTDBRecordID(sessionID, payload.Symbol, action, record.CreatedAt),
-			SessionID:       sessionID,
-			Symbol:          payload.Symbol,
-			Status:          "open",
-			EntryDecisionID: record.ID,
-			OpenedAt:        record.CreatedAt,
-			EntryScore:      payload.EntryScore,
-			ExitScore:       payload.ExitScore,
+		openWindow := findOpenWindow(windows, payload.Symbol)
+		var window model.TradeWindow
+		if openWindow != nil {
+			if strings.ToLower(strings.TrimSpace(session.TradingPositionMode)) != "rebuy" {
+				writeError(w, http.StatusConflict, "open trade window already exists")
+				return
+			}
+			window = updateOpenWindowForRebuy(*openWindow, record, session)
+		} else {
+			window = model.TradeWindow{
+				ID:                  buildRTDBRecordID(sessionID, payload.Symbol, action, record.CreatedAt),
+				SessionID:           sessionID,
+				Symbol:              payload.Symbol,
+				Status:              "open",
+				PositionMode:        session.TradingPositionMode,
+				EntryDecisionID:     record.ID,
+				LastEntryDecisionID: record.ID,
+				OpenedAt:            record.CreatedAt,
+				EntryScore:          payload.EntryScore,
+				ExitScore:           payload.ExitScore,
+				BuySignalCount:      1,
+			}
 		}
 		if err := r.store.SaveWindow(req.Context(), window); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to save trade window")
 			return
 		}
 		record.WindowID = window.ID
-		windows = append(windows, window)
+		if openWindow != nil {
+			for index := range windows {
+				if windows[index].ID == openWindow.ID {
+					windows[index] = window
+					break
+				}
+			}
+		} else {
+			windows = append(windows, window)
+		}
 		if err := r.persistAnalytics(req.Context(), record, &window); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to save analytics snapshot")
 			return
@@ -674,11 +696,20 @@ func (r *Router) sessionTrading(w http.ResponseWriter, req *http.Request, sessio
 	if session.TradingMode == "" {
 		session.TradingMode = trading.DefaultTradingMode
 	}
+	if session.TradingPositionMode == "" {
+		session.TradingPositionMode = trading.DefaultPositionMode
+	}
 	if len(session.TradingAllocations) == 0 {
 		session.TradingAllocations = trading.DefaultTradingAllocations()
 	}
 	if session.TradingStopLossPct <= 0 {
 		session.TradingStopLossPct = trading.DefaultTradingStopLossPct
+	}
+	if session.TradingRebuyMinDropPct <= 0 {
+		session.TradingRebuyMinDropPct = 0.5
+	}
+	if session.TradingRebuyMaxCount <= 0 {
+		session.TradingRebuyMaxCount = 2
 	}
 	if r.tradingService != nil {
 		account, accountErr := r.tradingService.CurrentAccount(req.Context(), session.TradingMode)
@@ -769,6 +800,15 @@ func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, 
 		writeError(w, http.StatusBadRequest, "mode must be paper or live")
 		return
 	}
+	positionMode := strings.ToLower(strings.TrimSpace(payload.PositionMode))
+	switch positionMode {
+	case "", "stop_loss":
+		positionMode = trading.DefaultPositionMode
+	case "rebuy", "none":
+	default:
+		writeError(w, http.StatusBadRequest, "position_management_mode must be stop_loss, rebuy or none")
+		return
+	}
 	allocations := normalizeTradingAllocations(payload.Allocations)
 	stopLoss := payload.StopLossPercent
 	if stopLoss <= 0 {
@@ -777,9 +817,23 @@ func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, 
 	if stopLoss > trading.MaxTradingStopLossPct {
 		stopLoss = trading.MaxTradingStopLossPct
 	}
+	rebuyMinDropPct := payload.RebuyMinDropPct
+	if rebuyMinDropPct <= 0 {
+		rebuyMinDropPct = 0.5
+	}
+	if rebuyMinDropPct > trading.MaxTradingStopLossPct {
+		rebuyMinDropPct = trading.MaxTradingStopLossPct
+	}
+	rebuyMaxCount := payload.RebuyMaxCount
+	if rebuyMaxCount <= 0 {
+		rebuyMaxCount = 2
+	}
 	session.TradingMode = mode
+	session.TradingPositionMode = positionMode
 	session.TradingAllocations = allocations
 	session.TradingStopLossPct = stopLoss
+	session.TradingRebuyMinDropPct = rebuyMinDropPct
+	session.TradingRebuyMaxCount = rebuyMaxCount
 	session.TradingUpdatedAt = timePtr(time.Now().UTC())
 	var accountErr error
 	if r.tradingService != nil {
@@ -845,6 +899,33 @@ func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request,
 	session.TradingMode = result.Mode
 	session.TradingAccount = result.Account
 	session.TradingUpdatedAt = timePtr(result.SubmittedAt)
+	if strings.EqualFold(result.Action, "BUY") {
+		if windows, windowsErr := r.store.ListWindows(req.Context(), sessionID); windowsErr == nil {
+			targetIndex := -1
+			if trimmedWindowID := strings.TrimSpace(payload.WindowID); trimmedWindowID != "" {
+				for index := range windows {
+					if windows[index].ID == trimmedWindowID {
+						targetIndex = index
+						break
+					}
+				}
+			}
+			if targetIndex < 0 {
+				for index := range windows {
+					if windows[index].Symbol == payload.Symbol && windows[index].Status == "open" {
+						targetIndex = index
+						break
+					}
+				}
+			}
+			if targetIndex >= 0 {
+				updatedWindow := updateWindowAfterBuyExecution(windows[targetIndex], session, result)
+				if err := r.store.SaveWindow(req.Context(), updatedWindow); err != nil && r.logger != nil {
+					r.logger.Warn("failed to persist trading execution window update", "session_id", sessionID, "window_id", updatedWindow.ID, "error", err)
+				}
+			}
+		}
+	}
 	if err := r.store.UpsertSession(req.Context(), session); err != nil {
 		if r.logger != nil {
 			r.logger.Warn("failed to persist trading execution snapshot", "session_id", sessionID, "error", err)
@@ -896,8 +977,11 @@ func tradingSessionResponse(sessionID string, session model.SessionSummary) map[
 	return map[string]any{
 		"session_id":                sessionID,
 		"trading_mode":              session.TradingMode,
+		"trading_position_mode":     session.TradingPositionMode,
 		"trading_allocations":       session.TradingAllocations,
 		"trading_stop_loss_percent": session.TradingStopLossPct,
+		"trading_rebuy_min_drop_percent": session.TradingRebuyMinDropPct,
+		"trading_rebuy_max_rebuys":  session.TradingRebuyMaxCount,
 		"trading_account":           session.TradingAccount,
 		"trading_updated_at":        session.TradingUpdatedAt,
 		"updated_at":                session.UpdatedAt,
@@ -910,6 +994,46 @@ func tradingSessionResponseWithError(sessionID string, session model.SessionSumm
 		payload["trading_account_error"] = accountErr.Error()
 	}
 	return payload
+}
+
+func updateOpenWindowForRebuy(window model.TradeWindow, record model.DecisionRecord, session model.SessionSummary) model.TradeWindow {
+	window.LastEntryDecisionID = record.ID
+	if window.EntryDecisionID == "" {
+		window.EntryDecisionID = record.ID
+	}
+	window.BuySignalCount++
+	if window.BuySignalCount < 1 {
+		window.BuySignalCount = 1
+	}
+	window.RebuyCount = maxInt(window.BuySignalCount-1, 0)
+	if strings.TrimSpace(window.PositionMode) == "" {
+		window.PositionMode = session.TradingPositionMode
+	}
+	window.UpdatedAt = record.CreatedAt
+	return window
+}
+
+func updateWindowAfterBuyExecution(window model.TradeWindow, session model.SessionSummary, result model.TradingExecutionResult) model.TradeWindow {
+	if strings.TrimSpace(window.PositionMode) == "" {
+		window.PositionMode = session.TradingPositionMode
+	}
+	if result.Quantity > 0 && result.FilledAvgPrice > 0 {
+		window.BuyExecutionCount++
+		window.EntryQuantity += result.Quantity
+		window.EntryNotional += result.Quantity * result.FilledAvgPrice
+		if window.EntryQuantity > 0 {
+			window.AverageEntryPrice = window.EntryNotional / window.EntryQuantity
+		}
+		window.LastEntryPrice = result.FilledAvgPrice
+		window.RebuyCount = maxInt(window.BuyExecutionCount-1, 0)
+		now := result.SubmittedAt
+		if now.IsZero() {
+			now = time.Now().UTC()
+		}
+		window.LastEntryAt = timePtr(now)
+		window.UpdatedAt = now
+	}
+	return window
 }
 
 func resolveTradingMode(sessionMode string, queryMode string) (string, error) {
@@ -1054,6 +1178,13 @@ func normalizeTradingAllocations(input map[string]float64) map[string]float64 {
 		allocations[tier] = value
 	}
 	return allocations
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func normalizeTradingTier(tier string) string {
