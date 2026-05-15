@@ -82,14 +82,14 @@ func TestExecuteBuyUsesLimitAndStopOrders(t *testing.T) {
 				t.Fatalf("decode order payload: %v", err)
 			}
 			switch payload["type"] {
-			case "limit":
+			case "market":
 				buyBody = payload
 				_ = json.NewEncoder(w).Encode(alpaca.Order{
 					ID:             "buy-order",
 					Status:         "filled",
 					Symbol:         "NVDA",
 					Side:           "buy",
-					Type:           "limit",
+					Type:           "market",
 					Qty:            "4.6545",
 					FilledQty:      "4.6545",
 					FilledAvgPrice: "215.70",
@@ -109,7 +109,7 @@ func TestExecuteBuyUsesLimitAndStopOrders(t *testing.T) {
 				Status:         "filled",
 				Symbol:         "NVDA",
 				Side:           "buy",
-				Type:           "limit",
+				Type:           "market",
 				Qty:            "4.6545",
 				FilledQty:      "4.6545",
 				FilledAvgPrice: "215.70",
@@ -148,14 +148,20 @@ func TestExecuteBuyUsesLimitAndStopOrders(t *testing.T) {
 	if result.StopLossPrice != 215.27 {
 		t.Fatalf("expected stop loss price 215.27, got %v", result.StopLossPrice)
 	}
-	if got := buyBody["type"]; got != "limit" {
-		t.Fatalf("expected limit buy order, got %#v", got)
+	if got := buyBody["type"]; got != "market" {
+		t.Fatalf("expected market buy order, got %#v", got)
 	}
-	if got := buyBody["limit_price"]; got != 215.7 {
-		t.Fatalf("expected limit price 215.7, got %#v", got)
+	if _, ok := buyBody["limit_price"]; ok {
+		t.Fatalf("expected no limit price for market buy order, got %#v", buyBody["limit_price"])
 	}
 	if got := buyBody["notional"]; got != 1000 {
 		t.Fatalf("expected notional 1000, got %#v", got)
+	}
+	if got := result.Details["order_type"]; got != "market" {
+		t.Fatalf("expected market order type detail, got %#v", got)
+	}
+	if got := result.Details["signal_price"]; got != 215.7 {
+		t.Fatalf("expected signal price 215.7, got %#v", got)
 	}
 	if got := strings.ToLower(strings.TrimSpace(stopBody["type"].(string))); got != "stop" {
 		t.Fatalf("expected stop order for protection, got %#v", got)
@@ -174,6 +180,99 @@ func TestExecuteBuyUsesLimitAndStopOrders(t *testing.T) {
 	}
 	if _, ok := result.Details["stop_order_error"]; ok {
 		t.Fatalf("expected no stop order error details on successful stop protection")
+	}
+}
+
+func TestExecuteBuySkipsStopOrdersInRebuyMode(t *testing.T) {
+	t.Parallel()
+
+	var stopOrderCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/paper/v2/account":
+			_ = json.NewEncoder(w).Encode(alpaca.Account{
+				Status:         "ACTIVE",
+				BuyingPower:    "5000",
+				Cash:           "5000",
+				Equity:         "5000",
+				PortfolioValue: "5000",
+			})
+		case req.Method == http.MethodPost && req.URL.Path == "/paper/v2/orders":
+			var payload map[string]any
+			if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode order payload: %v", err)
+			}
+			switch payload["type"] {
+			case "market":
+				_ = json.NewEncoder(w).Encode(alpaca.Order{
+					ID:             "buy-order",
+					Status:         "filled",
+					Symbol:         "TSLA",
+					Side:           "buy",
+					Type:           "market",
+					Qty:            "5",
+					FilledQty:      "5",
+					FilledAvgPrice: "444.06",
+				})
+			case "stop":
+				stopOrderCalls++
+				t.Fatalf("rebuy mode should not submit stop orders")
+			default:
+				t.Fatalf("unexpected order type %v", payload["type"])
+			}
+		case req.Method == http.MethodGet && req.URL.Path == "/paper/v2/orders/buy-order":
+			_ = json.NewEncoder(w).Encode(alpaca.Order{
+				ID:             "buy-order",
+				Status:         "filled",
+				Symbol:         "TSLA",
+				Side:           "buy",
+				Type:           "market",
+				Qty:            "5",
+				FilledQty:      "5",
+				FilledAvgPrice: "444.06",
+			})
+		default:
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	service := NewService(alpaca.NewClient(
+		"paper-key",
+		"paper-secret",
+		"live-key",
+		"live-secret",
+		server.URL+"/paper",
+		server.URL+"/live",
+		5*time.Second,
+	))
+
+	result, err := service.Execute(context.Background(), model.SessionSummary{
+		ID:                     "session-1",
+		TradingMode:            "paper",
+		TradingPositionMode:    "rebuy",
+		TradingAllocations:     map[string]float64{"balanced_buy": 1000},
+		TradingStopLossPct:     0.2,
+		TradingRebuyMinDropPct: 0.8,
+		TradingRebuyMaxCount:   2,
+	}, model.TradingExecutionRequest{
+		SessionID:  "session-1",
+		Symbol:     "TSLA",
+		Action:     "BUY_ALERT",
+		Price:      444.06,
+		SignalTier: "balanced_buy",
+	})
+	if err != nil {
+		t.Fatalf("execute rebuy mode buy: %v", err)
+	}
+	if result.StopLossPrice != 0 {
+		t.Fatalf("expected no stop loss price in rebuy mode, got %v", result.StopLossPrice)
+	}
+	if stopOrderCalls != 0 {
+		t.Fatalf("expected no stop order calls in rebuy mode, got %d", stopOrderCalls)
+	}
+	if got := result.Details["position_mode"]; got != "rebuy" {
+		t.Fatalf("expected rebuy position mode detail, got %#v", got)
 	}
 }
 
@@ -197,13 +296,13 @@ func TestExecuteBuyUsesGTCForWholeShareStops(t *testing.T) {
 				t.Fatalf("decode order payload: %v", err)
 			}
 			switch payload["type"] {
-			case "limit":
+			case "market":
 				_ = json.NewEncoder(w).Encode(alpaca.Order{
 					ID:             "buy-order",
 					Status:         "filled",
 					Symbol:         "TSLA",
 					Side:           "buy",
-					Type:           "limit",
+					Type:           "market",
 					Qty:            "5",
 					FilledQty:      "5",
 					FilledAvgPrice: "444.06",
@@ -223,7 +322,7 @@ func TestExecuteBuyUsesGTCForWholeShareStops(t *testing.T) {
 				Status:         "filled",
 				Symbol:         "TSLA",
 				Side:           "buy",
-				Type:           "limit",
+				Type:           "market",
 				Qty:            "5",
 				FilledQty:      "5",
 				FilledAvgPrice: "444.06",
@@ -289,13 +388,13 @@ func TestExecuteBuyReturnsSuccessWhenStopFails(t *testing.T) {
 			if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
 				t.Fatalf("decode order payload: %v", err)
 			}
-			if payload["type"] == "limit" {
+			if payload["type"] == "market" {
 				_ = json.NewEncoder(w).Encode(alpaca.Order{
 					ID:             "buy-order",
 					Status:         "filled",
 					Symbol:         "NVDA",
 					Side:           "buy",
-					Type:           "limit",
+					Type:           "market",
 					Qty:            "4.6545",
 					FilledQty:      "4.6545",
 					FilledAvgPrice: "215.70",
@@ -309,7 +408,7 @@ func TestExecuteBuyReturnsSuccessWhenStopFails(t *testing.T) {
 				Status:         "filled",
 				Symbol:         "NVDA",
 				Side:           "buy",
-				Type:           "limit",
+				Type:           "market",
 				Qty:            "4.6545",
 				FilledQty:      "4.6545",
 				FilledAvgPrice: "215.70",
@@ -384,13 +483,13 @@ func TestExecuteBuyPreservesPartialFillAfterContextCancellation(t *testing.T) {
 				t.Fatalf("decode order payload: %v", err)
 			}
 			switch payload["type"] {
-			case "limit":
+			case "market":
 				_ = json.NewEncoder(w).Encode(alpaca.Order{
 					ID:             "buy-order",
 					Status:         "new",
 					Symbol:         "NVDA",
 					Side:           "buy",
-					Type:           "limit",
+					Type:           "market",
 					Qty:            "4.6545",
 					FilledQty:      "0",
 					FilledAvgPrice: "0",
@@ -413,7 +512,7 @@ func TestExecuteBuyPreservesPartialFillAfterContextCancellation(t *testing.T) {
 				Status:         "partially_filled",
 				Symbol:         "NVDA",
 				Side:           "buy",
-				Type:           "limit",
+				Type:           "market",
 				Qty:            "4.6545",
 				FilledQty:      "2.0000",
 				FilledAvgPrice: "215.70",

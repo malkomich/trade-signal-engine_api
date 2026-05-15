@@ -15,8 +15,12 @@ import (
 
 const (
 	DefaultTradingMode        = "paper"
+	DefaultPositionMode       = "stop_loss"
 	DefaultTradingAllocation  = 1000.0
 	DefaultTradingStopLossPct = 0.20
+	DefaultRebuyMinDropPct    = 0.5
+	DefaultRebuyMaxCount      = 2
+	MaxRebuyMinDropPct        = 10.0
 	MaxTradingStopLossPct     = 10.0
 	orderFillPollInterval     = 750 * time.Millisecond
 	orderFillTimeout          = 12 * time.Second
@@ -108,17 +112,19 @@ func (s *Service) executeBuy(
 	if account.BuyingPower > 0 {
 		allocation = math.Min(allocation, account.BuyingPower)
 	}
-	limitPrice := roundStopPrice(request.Price)
-	if limitPrice <= 0 {
-		return model.TradingExecutionResult{}, fmt.Errorf("alpaca buy order %s requires a valid limit price", symbol)
+	referencePrice := roundStopPrice(request.Price)
+	if request.LimitPrice > 0 {
+		referencePrice = roundStopPrice(request.LimitPrice)
+	}
+	if referencePrice <= 0 {
+		return model.TradingExecutionResult{}, fmt.Errorf("alpaca buy order %s requires a valid reference price", symbol)
 	}
 	order, err := s.client.SubmitOrder(ctx, mode, alpaca.OrderRequest{
 		Symbol:      symbol,
 		Side:        "buy",
-		Type:        "limit",
+		Type:        "market",
 		TimeInForce: "day",
 		Notional:    float64Ptr(allocation),
-		LimitPrice:  float64Ptr(limitPrice),
 	})
 	if err != nil {
 		return model.TradingExecutionResult{}, err
@@ -138,6 +144,10 @@ func (s *Service) executeBuy(
 	}
 
 	stopLossPct := normalizeStopLossPercent(settings.TradingStopLossPct)
+	positionMode := NormalizePositionMode(settings.TradingPositionMode)
+	if positionMode != DefaultPositionMode {
+		stopLossPct = 0
+	}
 	stopLossPrice := 0.0
 	if filledPrice > 0 && stopLossPct > 0 {
 		stopLossPrice = roundStopPrice(filledPrice * (1.0 - (stopLossPct / 100.0)))
@@ -174,24 +184,27 @@ func (s *Service) executeBuy(
 	}
 
 	return model.TradingExecutionResult{
-		Status:        "submitted",
-		SessionID:     sessionID,
-		Symbol:        symbol,
-		Action:        strings.ToUpper(strings.TrimSpace(request.Action)),
-		Mode:          mode,
-		OrderID:       order.ID,
-		Side:          order.Side,
-		Quantity:      filledQty,
-		Notional:      allocation,
-		StopLossPrice: stopLossPrice,
-		Account:       &account,
-		SubmittedAt:   time.Now().UTC(),
+		Status:         "submitted",
+		SessionID:      sessionID,
+		Symbol:         symbol,
+		Action:         strings.ToUpper(strings.TrimSpace(request.Action)),
+		Mode:           mode,
+		OrderID:        order.ID,
+		Side:           order.Side,
+		Quantity:       filledQty,
+		Notional:       allocation,
+		FilledAvgPrice: filledPrice,
+		StopLossPrice:  stopLossPrice,
+		Account:        &account,
+		SubmittedAt:    time.Now().UTC(),
 		Details: func() map[string]any {
 			details := map[string]any{
 				"filled_order_status": filledOrder.Status,
 				"stop_order_id":       stopOrderID,
-				"limit_price":         limitPrice,
+				"signal_price":        referencePrice,
+				"order_type":          "market",
 				"stop_loss_percent":   stopLossPct,
+				"position_mode":       positionMode,
 			}
 			if waitErr != nil && filledQty > 0 && filledPrice > 0 {
 				details["buy_order_warning"] = waitErr.Error()
@@ -342,13 +355,35 @@ func normalizeTradingSettings(session model.SessionSummary) model.SessionSummary
 	if normalizeMode(session.TradingMode) == "" {
 		session.TradingMode = DefaultTradingMode
 	}
+	if NormalizePositionMode(session.TradingPositionMode) == "" {
+		session.TradingPositionMode = DefaultPositionMode
+	}
 	if len(session.TradingAllocations) == 0 {
 		session.TradingAllocations = DefaultTradingAllocations()
 	}
 	if session.TradingStopLossPct <= 0 {
 		session.TradingStopLossPct = DefaultTradingStopLossPct
 	}
+	if session.TradingRebuyMinDropPct <= 0 {
+		session.TradingRebuyMinDropPct = DefaultRebuyMinDropPct
+	}
+	if session.TradingRebuyMinDropPct > MaxRebuyMinDropPct {
+		session.TradingRebuyMinDropPct = MaxRebuyMinDropPct
+	}
+	if session.TradingRebuyMaxCount <= 0 {
+		session.TradingRebuyMaxCount = DefaultRebuyMaxCount
+	}
 	return session
+}
+
+func NormalizePositionMode(mode string) string {
+	normalized := strings.ToLower(strings.TrimSpace(mode))
+	switch normalized {
+	case "stop_loss", "rebuy", "none":
+		return normalized
+	default:
+		return ""
+	}
 }
 
 func normalizeMode(mode string) string {
