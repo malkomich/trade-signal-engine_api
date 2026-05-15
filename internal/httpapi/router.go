@@ -471,10 +471,6 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 		return
 	}
 
-	if err := r.store.SaveDecision(req.Context(), record); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save decision")
-		return
-	}
 	session, err := r.store.GetSession(req.Context(), sessionID)
 	if err != nil && err != store.ErrNotFound {
 		writeError(w, http.StatusInternalServerError, "failed to load session")
@@ -509,11 +505,11 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 				BuySignalCount:      1,
 			}
 		}
+		record.WindowID = window.ID
 		if err := r.store.SaveWindow(req.Context(), window); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to save trade window")
 			return
 		}
-		record.WindowID = window.ID
 		if openWindow != nil {
 			for index := range windows {
 				if windows[index].ID == openWindow.ID {
@@ -549,6 +545,10 @@ func (r *Router) sessionAction(w http.ResponseWriter, req *http.Request, session
 			writeError(w, http.StatusInternalServerError, "failed to save analytics snapshot")
 			return
 		}
+	}
+	if err := r.store.SaveDecision(req.Context(), record); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save decision")
+		return
 	}
 	if err := r.persistSignalEvent(req.Context(), record); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save signal event")
@@ -706,10 +706,10 @@ func (r *Router) sessionTrading(w http.ResponseWriter, req *http.Request, sessio
 		session.TradingStopLossPct = trading.DefaultTradingStopLossPct
 	}
 	if session.TradingRebuyMinDropPct <= 0 {
-		session.TradingRebuyMinDropPct = 0.5
+		session.TradingRebuyMinDropPct = trading.DefaultRebuyMinDropPct
 	}
 	if session.TradingRebuyMaxCount <= 0 {
-		session.TradingRebuyMaxCount = 2
+		session.TradingRebuyMaxCount = trading.DefaultRebuyMaxCount
 	}
 	if r.tradingService != nil {
 		account, accountErr := r.tradingService.CurrentAccount(req.Context(), session.TradingMode)
@@ -800,13 +800,13 @@ func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, 
 		writeError(w, http.StatusBadRequest, "mode must be paper or live")
 		return
 	}
-	positionMode := strings.ToLower(strings.TrimSpace(payload.PositionMode))
+	positionMode := trading.NormalizePositionMode(payload.PositionMode)
 	switch positionMode {
-	case "", "stop_loss":
+	case "", trading.DefaultPositionMode:
 		positionMode = trading.DefaultPositionMode
 	case "rebuy", "none":
 	default:
-		writeError(w, http.StatusBadRequest, "position_management_mode must be stop_loss, rebuy or none")
+		writeError(w, http.StatusBadRequest, "trading_position_mode must be stop_loss, rebuy or none")
 		return
 	}
 	allocations := normalizeTradingAllocations(payload.Allocations)
@@ -819,14 +819,14 @@ func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, 
 	}
 	rebuyMinDropPct := payload.RebuyMinDropPct
 	if rebuyMinDropPct <= 0 {
-		rebuyMinDropPct = 0.5
+		rebuyMinDropPct = trading.DefaultRebuyMinDropPct
 	}
-	if rebuyMinDropPct > trading.MaxTradingStopLossPct {
-		rebuyMinDropPct = trading.MaxTradingStopLossPct
+	if rebuyMinDropPct > trading.MaxRebuyMinDropPct {
+		rebuyMinDropPct = trading.MaxRebuyMinDropPct
 	}
 	rebuyMaxCount := payload.RebuyMaxCount
 	if rebuyMaxCount <= 0 {
-		rebuyMaxCount = 2
+		rebuyMaxCount = trading.DefaultRebuyMaxCount
 	}
 	session.TradingMode = mode
 	session.TradingPositionMode = positionMode
@@ -899,12 +899,12 @@ func (r *Router) sessionTradingExecute(w http.ResponseWriter, req *http.Request,
 	session.TradingMode = result.Mode
 	session.TradingAccount = result.Account
 	session.TradingUpdatedAt = timePtr(result.SubmittedAt)
-	if strings.EqualFold(result.Action, "BUY") {
+	if notificationActionSide(result.Action) == "BUY" {
 		if windows, windowsErr := r.store.ListWindows(req.Context(), sessionID); windowsErr == nil {
 			targetIndex := -1
 			if trimmedWindowID := strings.TrimSpace(payload.WindowID); trimmedWindowID != "" {
 				for index := range windows {
-					if windows[index].ID == trimmedWindowID {
+					if windows[index].ID == trimmedWindowID && windows[index].Symbol == payload.Symbol && windows[index].Status == "open" {
 						targetIndex = index
 						break
 					}
@@ -975,16 +975,16 @@ func isSupportedTradingAction(action string) bool {
 
 func tradingSessionResponse(sessionID string, session model.SessionSummary) map[string]any {
 	return map[string]any{
-		"session_id":                sessionID,
-		"trading_mode":              session.TradingMode,
-		"trading_position_mode":     session.TradingPositionMode,
-		"trading_allocations":       session.TradingAllocations,
-		"trading_stop_loss_percent": session.TradingStopLossPct,
+		"session_id":                     sessionID,
+		"trading_mode":                   session.TradingMode,
+		"trading_position_mode":          session.TradingPositionMode,
+		"trading_allocations":            session.TradingAllocations,
+		"trading_stop_loss_percent":      session.TradingStopLossPct,
 		"trading_rebuy_min_drop_percent": session.TradingRebuyMinDropPct,
-		"trading_rebuy_max_rebuys":  session.TradingRebuyMaxCount,
-		"trading_account":           session.TradingAccount,
-		"trading_updated_at":        session.TradingUpdatedAt,
-		"updated_at":                session.UpdatedAt,
+		"trading_rebuy_max_rebuys":       session.TradingRebuyMaxCount,
+		"trading_account":                session.TradingAccount,
+		"trading_updated_at":             session.TradingUpdatedAt,
+		"updated_at":                     session.UpdatedAt,
 	}
 }
 
@@ -1002,10 +1002,6 @@ func updateOpenWindowForRebuy(window model.TradeWindow, record model.DecisionRec
 		window.EntryDecisionID = record.ID
 	}
 	window.BuySignalCount++
-	if window.BuySignalCount < 1 {
-		window.BuySignalCount = 1
-	}
-	window.RebuyCount = maxInt(window.BuySignalCount-1, 0)
 	if strings.TrimSpace(window.PositionMode) == "" {
 		window.PositionMode = session.TradingPositionMode
 	}
@@ -1025,7 +1021,7 @@ func updateWindowAfterBuyExecution(window model.TradeWindow, session model.Sessi
 			window.AverageEntryPrice = window.EntryNotional / window.EntryQuantity
 		}
 		window.LastEntryPrice = result.FilledAvgPrice
-		window.RebuyCount = maxInt(window.BuyExecutionCount-1, 0)
+		window.RebuyCount = max(window.BuyExecutionCount-1, 0)
 		now := result.SubmittedAt
 		if now.IsZero() {
 			now = time.Now().UTC()
@@ -1178,13 +1174,6 @@ func normalizeTradingAllocations(input map[string]float64) map[string]float64 {
 		allocations[tier] = value
 	}
 	return allocations
-}
-
-func maxInt(left, right int) int {
-	if left > right {
-		return left
-	}
-	return right
 }
 
 func normalizeTradingTier(tier string) string {

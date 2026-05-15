@@ -117,22 +117,22 @@ type MarketSnapshot struct {
 }
 
 type SessionSummary struct {
-	ID                  string                     `json:"id"`
-	Status              string                     `json:"status"`
-	OpenWindows         int                        `json:"open_windows"`
-	LastDecisionAt      time.Time                  `json:"last_decision_at"`
-	Symbols             []string                   `json:"symbols"`
-	ConfigVersion       string                     `json:"config_version"`
-	TradingMode         string                     `json:"trading_mode,omitempty"`
-	TradingPositionMode string                     `json:"trading_position_mode,omitempty"`
-	TradingAllocations  map[string]float64         `json:"trading_allocations,omitempty"`
-	TradingStopLossPct  float64                    `json:"trading_stop_loss_percent,omitempty"`
-	TradingRebuyMinDropPct float64                 `json:"trading_rebuy_min_drop_percent,omitempty"`
-	TradingRebuyMaxCount   int                     `json:"trading_rebuy_max_rebuys,omitempty"`
-	TradingAccount      *TradingAccountSnapshot    `json:"trading_account,omitempty"`
-	TradingUpdatedAt    *time.Time                 `json:"trading_updated_at,omitempty"`
-	OptimizationSummary *WindowOptimizationSummary `json:"optimization_summary,omitempty"`
-	UpdatedAt           time.Time                  `json:"updated_at"`
+	ID                     string                     `json:"id"`
+	Status                 string                     `json:"status"`
+	OpenWindows            int                        `json:"open_windows"`
+	LastDecisionAt         time.Time                  `json:"last_decision_at"`
+	Symbols                []string                   `json:"symbols"`
+	ConfigVersion          string                     `json:"config_version"`
+	TradingMode            string                     `json:"trading_mode,omitempty"`
+	TradingPositionMode    string                     `json:"trading_position_mode,omitempty"`
+	TradingAllocations     map[string]float64         `json:"trading_allocations,omitempty"`
+	TradingStopLossPct     float64                    `json:"trading_stop_loss_percent,omitempty"`
+	TradingRebuyMinDropPct float64                    `json:"trading_rebuy_min_drop_percent,omitempty"`
+	TradingRebuyMaxCount   int                        `json:"trading_rebuy_max_rebuys,omitempty"`
+	TradingAccount         *TradingAccountSnapshot    `json:"trading_account,omitempty"`
+	TradingUpdatedAt       *time.Time                 `json:"trading_updated_at,omitempty"`
+	OptimizationSummary    *WindowOptimizationSummary `json:"optimization_summary,omitempty"`
+	UpdatedAt              time.Time                  `json:"updated_at"`
 }
 
 type TradingAccountSnapshot struct {
@@ -148,7 +148,7 @@ type TradingAccountSnapshot struct {
 type TradingSettingsRequest struct {
 	SessionID       string             `json:"session_id"`
 	Mode            string             `json:"mode"`
-	PositionMode    string             `json:"position_management_mode"`
+	PositionMode    string             `json:"trading_position_mode"`
 	Allocations     map[string]float64 `json:"allocations"`
 	StopLossPercent float64            `json:"stop_loss_percent"`
 	RebuyMinDropPct float64            `json:"rebuy_min_drop_percent"`
@@ -170,44 +170,44 @@ type TradingExecutionRequest struct {
 }
 
 type TradingExecutionResult struct {
-	Status        string                  `json:"status"`
-	SessionID     string                  `json:"session_id"`
-	Symbol        string                  `json:"symbol"`
-	Action        string                  `json:"action"`
-	Mode          string                  `json:"mode"`
-	OrderID       string                  `json:"order_id,omitempty"`
-	Side          string                  `json:"side,omitempty"`
-	Quantity      float64                 `json:"quantity,omitempty"`
-	Notional      float64                 `json:"notional,omitempty"`
-	FilledAvgPrice float64                `json:"filled_avg_price,omitempty"`
-	StopLossPrice float64                 `json:"stop_loss_price,omitempty"`
-	Account       *TradingAccountSnapshot `json:"account,omitempty"`
-	SubmittedAt   time.Time               `json:"submitted_at,omitempty"`
-	Details       map[string]any          `json:"details,omitempty"`
+	Status         string                  `json:"status"`
+	SessionID      string                  `json:"session_id"`
+	Symbol         string                  `json:"symbol"`
+	Action         string                  `json:"action"`
+	Mode           string                  `json:"mode"`
+	OrderID        string                  `json:"order_id,omitempty"`
+	Side           string                  `json:"side,omitempty"`
+	Quantity       float64                 `json:"quantity,omitempty"`
+	Notional       float64                 `json:"notional,omitempty"`
+	FilledAvgPrice float64                 `json:"filled_avg_price,omitempty"`
+	StopLossPrice  float64                 `json:"stop_loss_price,omitempty"`
+	Account        *TradingAccountSnapshot `json:"account,omitempty"`
+	SubmittedAt    time.Time               `json:"submitted_at,omitempty"`
+	Details        map[string]any          `json:"details,omitempty"`
 }
 
 type TradeWindow struct {
-	ID                   string     `json:"id"`
-	SessionID            string     `json:"session_id"`
-	Symbol               string     `json:"symbol"`
-	Status               string     `json:"status"`
-	PositionMode         string     `json:"position_management_mode,omitempty"`
-	EntryDecisionID      string     `json:"entry_decision_id,omitempty"`
-	LastEntryDecisionID  string     `json:"last_entry_decision_id,omitempty"`
-	ExitDecisionID       string     `json:"exit_decision_id,omitempty"`
-	BuySignalCount       int        `json:"buy_signal_count,omitempty"`
-	BuyExecutionCount    int        `json:"buy_execution_count,omitempty"`
-	RebuyCount           int        `json:"rebuy_count,omitempty"`
-	OpenedAt             time.Time  `json:"opened_at"`
-	ClosedAt             *time.Time `json:"closed_at,omitempty"`
-	EntryScore           float64    `json:"entry_score"`
-	ExitScore            float64    `json:"exit_score"`
-	EntryQuantity        float64    `json:"entry_quantity,omitempty"`
-	EntryNotional        float64    `json:"entry_notional,omitempty"`
-	AverageEntryPrice    float64    `json:"average_entry_price,omitempty"`
-	LastEntryPrice       float64    `json:"last_entry_price,omitempty"`
-	LastEntryAt          *time.Time `json:"last_entry_at,omitempty"`
-	UpdatedAt            time.Time  `json:"updated_at"`
+	ID                  string     `json:"id"`
+	SessionID           string     `json:"session_id"`
+	Symbol              string     `json:"symbol"`
+	Status              string     `json:"status"`
+	PositionMode        string     `json:"position_management_mode,omitempty"`
+	EntryDecisionID     string     `json:"entry_decision_id,omitempty"`
+	LastEntryDecisionID string     `json:"last_entry_decision_id,omitempty"`
+	ExitDecisionID      string     `json:"exit_decision_id,omitempty"`
+	BuySignalCount      int        `json:"buy_signal_count,omitempty"`
+	BuyExecutionCount   int        `json:"buy_execution_count,omitempty"`
+	RebuyCount          int        `json:"rebuy_count,omitempty"`
+	OpenedAt            time.Time  `json:"opened_at"`
+	ClosedAt            *time.Time `json:"closed_at,omitempty"`
+	EntryScore          float64    `json:"entry_score"`
+	ExitScore           float64    `json:"exit_score"`
+	EntryQuantity       float64    `json:"entry_quantity,omitempty"`
+	EntryNotional       float64    `json:"entry_notional,omitempty"`
+	AverageEntryPrice   float64    `json:"average_entry_price,omitempty"`
+	LastEntryPrice      float64    `json:"last_entry_price,omitempty"`
+	LastEntryAt         *time.Time `json:"last_entry_at,omitempty"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
 type WindowSnapshot struct {

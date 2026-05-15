@@ -724,7 +724,7 @@ func TestSessionTradingEndpointReturnsDefaultsWithoutTradingService(t *testing.T
 	if got := payload["trading_rebuy_min_drop_percent"]; got != 0.5 {
 		t.Fatalf("expected default rebuy min drop percent 0.5, got %v", got)
 	}
-	if got := payload["trading_rebuy_max_rebuys"]; got != 2 {
+	if got := payload["trading_rebuy_max_rebuys"]; got != float64(2) {
 		t.Fatalf("expected default rebuy max rebuys 2, got %v", got)
 	}
 	allocations, ok := payload["trading_allocations"].(map[string]any)
