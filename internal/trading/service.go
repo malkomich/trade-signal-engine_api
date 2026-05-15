@@ -109,20 +109,19 @@ func (s *Service) executeBuy(
 	if account.BuyingPower > 0 {
 		allocation = math.Min(allocation, account.BuyingPower)
 	}
-	limitPrice := roundStopPrice(request.Price)
+	referencePrice := roundStopPrice(request.Price)
 	if request.LimitPrice > 0 {
-		limitPrice = roundStopPrice(request.LimitPrice)
+		referencePrice = roundStopPrice(request.LimitPrice)
 	}
-	if limitPrice <= 0 {
-		return model.TradingExecutionResult{}, fmt.Errorf("alpaca buy order %s requires a valid limit price", symbol)
+	if referencePrice <= 0 {
+		return model.TradingExecutionResult{}, fmt.Errorf("alpaca buy order %s requires a valid reference price", symbol)
 	}
 	order, err := s.client.SubmitOrder(ctx, mode, alpaca.OrderRequest{
 		Symbol:      symbol,
 		Side:        "buy",
-		Type:        "limit",
+		Type:        "market",
 		TimeInForce: "day",
 		Notional:    float64Ptr(allocation),
-		LimitPrice:  float64Ptr(limitPrice),
 	})
 	if err != nil {
 		return model.TradingExecutionResult{}, err
@@ -199,7 +198,8 @@ func (s *Service) executeBuy(
 			details := map[string]any{
 				"filled_order_status": filledOrder.Status,
 				"stop_order_id":       stopOrderID,
-				"limit_price":         limitPrice,
+				"signal_price":        referencePrice,
+				"order_type":          "market",
 				"stop_loss_percent":   stopLossPct,
 				"position_mode":       positionMode,
 			}

@@ -157,6 +157,12 @@ func TestExecuteBuyUsesLimitAndStopOrders(t *testing.T) {
 	if got := buyBody["notional"]; got != 1000 {
 		t.Fatalf("expected notional 1000, got %#v", got)
 	}
+	if got := result.Details["order_type"]; got != "market" {
+		t.Fatalf("expected market order type detail, got %#v", got)
+	}
+	if got := result.Details["signal_price"]; got != 215.7 {
+		t.Fatalf("expected signal price 215.7, got %#v", got)
+	}
 	if got := strings.ToLower(strings.TrimSpace(stopBody["type"].(string))); got != "stop" {
 		t.Fatalf("expected stop order for protection, got %#v", got)
 	}
@@ -197,13 +203,13 @@ func TestExecuteBuySkipsStopOrdersInRebuyMode(t *testing.T) {
 				t.Fatalf("decode order payload: %v", err)
 			}
 			switch payload["type"] {
-			case "limit":
+			case "market":
 				_ = json.NewEncoder(w).Encode(alpaca.Order{
 					ID:             "buy-order",
 					Status:         "filled",
 					Symbol:         "TSLA",
 					Side:           "buy",
-					Type:           "limit",
+					Type:           "market",
 					Qty:            "5",
 					FilledQty:      "5",
 					FilledAvgPrice: "444.06",
@@ -220,7 +226,7 @@ func TestExecuteBuySkipsStopOrdersInRebuyMode(t *testing.T) {
 				Status:         "filled",
 				Symbol:         "TSLA",
 				Side:           "buy",
-				Type:           "limit",
+				Type:           "market",
 				Qty:            "5",
 				FilledQty:      "5",
 				FilledAvgPrice: "444.06",
@@ -242,13 +248,13 @@ func TestExecuteBuySkipsStopOrdersInRebuyMode(t *testing.T) {
 	))
 
 	result, err := service.Execute(context.Background(), model.SessionSummary{
-		ID:                   "session-1",
-		TradingMode:          "paper",
-		TradingPositionMode:  "rebuy",
-		TradingAllocations:   map[string]float64{"balanced_buy": 1000},
-		TradingStopLossPct:   0.2,
+		ID:                     "session-1",
+		TradingMode:            "paper",
+		TradingPositionMode:    "rebuy",
+		TradingAllocations:     map[string]float64{"balanced_buy": 1000},
+		TradingStopLossPct:     0.2,
 		TradingRebuyMinDropPct: 0.8,
-		TradingRebuyMaxCount:  2,
+		TradingRebuyMaxCount:   2,
 	}, model.TradingExecutionRequest{
 		SessionID:  "session-1",
 		Symbol:     "TSLA",
