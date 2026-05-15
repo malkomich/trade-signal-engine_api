@@ -117,6 +117,14 @@ func originAllowed(origin string, allowedOrigins []string) bool {
 				return true
 			}
 		}
+		if strings.Contains(allowed, "*") {
+			parts := strings.SplitN(allowed, "*", 2)
+			prefix := parts[0]
+			suffix := parts[1]
+			if strings.HasPrefix(origin, prefix) && strings.HasSuffix(origin, suffix) {
+				return true
+			}
+		}
 		if strings.EqualFold(strings.TrimRight(allowed, "/"), strings.TrimRight(origin, "/")) {
 			return true
 		}
