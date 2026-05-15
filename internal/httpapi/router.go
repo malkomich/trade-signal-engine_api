@@ -754,18 +754,26 @@ func (r *Router) sessionTradingAccount(w http.ResponseWriter, req *http.Request,
 		if r.logger != nil {
 			r.logger.Warn("alpaca account refresh failed", "session_id", sessionID, "mode", mode, "error", accountErr)
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
+		payload := map[string]any{
 			"session_id":            sessionID,
 			"trading_mode":          mode,
 			"trading_account":       nil,
 			"trading_account_error": accountErr.Error(),
 			"trading_updated_at":    nil,
-		})
+		}
+		if session.TradingAccount != nil {
+			payload["trading_account"] = session.TradingAccount
+			payload["trading_updated_at"] = session.TradingUpdatedAt
+		}
+		writeJSON(w, http.StatusOK, payload)
 		return
 	}
 	session.TradingMode = mode
 	session.TradingAccount = &account
 	session.TradingUpdatedAt = timePtr(account.UpdatedAt)
+	if err := r.store.UpsertSession(req.Context(), session); err != nil && r.logger != nil {
+		r.logger.Warn("failed to persist trading account snapshot", "session_id", sessionID, "error", err)
+	}
 	writeJSON(w, http.StatusOK, tradingSessionResponse(sessionID, session))
 }
 
