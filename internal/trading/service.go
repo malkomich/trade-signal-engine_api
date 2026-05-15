@@ -367,6 +367,9 @@ func normalizeTradingSettings(session model.SessionSummary) model.SessionSummary
 	if session.TradingRebuyMinDropPct <= 0 {
 		session.TradingRebuyMinDropPct = DefaultRebuyMinDropPct
 	}
+	if session.TradingRebuyMinDropPct > MaxRebuyMinDropPct {
+		session.TradingRebuyMinDropPct = MaxRebuyMinDropPct
+	}
 	if session.TradingRebuyMaxCount <= 0 {
 		session.TradingRebuyMaxCount = DefaultRebuyMaxCount
 	}

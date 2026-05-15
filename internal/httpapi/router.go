@@ -800,8 +800,9 @@ func (r *Router) sessionTradingUpdate(w http.ResponseWriter, req *http.Request, 
 		writeError(w, http.StatusBadRequest, "mode must be paper or live")
 		return
 	}
-	positionMode := trading.NormalizePositionMode(payload.PositionMode)
-	switch positionMode {
+	positionModeInput := strings.ToLower(strings.TrimSpace(payload.PositionMode))
+	positionMode := positionModeInput
+	switch positionModeInput {
 	case "", trading.DefaultPositionMode:
 		positionMode = trading.DefaultPositionMode
 	case "rebuy", "none":
