@@ -771,6 +771,9 @@ func (r *Router) sessionTradingAccount(w http.ResponseWriter, req *http.Request,
 	session.TradingMode = mode
 	session.TradingAccount = &account
 	session.TradingUpdatedAt = timePtr(account.UpdatedAt)
+	if err := r.store.UpsertSession(req.Context(), session); err != nil && r.logger != nil {
+		r.logger.Warn("failed to persist trading account snapshot", "session_id", sessionID, "error", err)
+	}
 	writeJSON(w, http.StatusOK, tradingSessionResponse(sessionID, session))
 }
 

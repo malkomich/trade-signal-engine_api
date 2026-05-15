@@ -794,6 +794,16 @@ func TestSessionTradingAccountEndpointReturnsSelectedModeSnapshot(t *testing.T) 
 	if got := account["buying_power"]; got != 1234.56 {
 		t.Fatalf("expected buying_power 1234.56, got %v", got)
 	}
+	storedSession, err := st.GetSession(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("expected stored session after account refresh: %v", err)
+	}
+	if storedSession.TradingAccount == nil {
+		t.Fatalf("expected stored trading account after refresh")
+	}
+	if got := storedSession.TradingAccount.Status; got != "ACTIVE" {
+		t.Fatalf("expected stored active account, got %v", got)
+	}
 }
 
 func TestSessionTradingAccountEndpointFallsBackToStoredSnapshotOnRefreshError(t *testing.T) {
