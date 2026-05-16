@@ -982,16 +982,16 @@ func TestRouterAllowsWildcardCORSOrigins(t *testing.T) {
 
 func TestRouterAllowsFirebasePreviewCORSOrigins(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/v1/sessions/session-1/trading", nil)
-	req.Header.Set("Origin", "https://pr-42--trade-signal-engine.web.app")
+	req.Header.Set("Origin", "https://trade-signal-engine--pr-30-k39hggi2.web.app")
 	req.Header.Set("Access-Control-Request-Method", http.MethodPut)
 	rr := httptest.NewRecorder()
 
-	NewRouter(store.NewMemoryStore(), nil, nil, slog.Default(), "IXIC", []string{"https://*--trade-signal-engine.web.app"}, nil).ServeHTTP(rr, req)
+	NewRouter(store.NewMemoryStore(), nil, nil, slog.Default(), "IXIC", []string{"https://trade-signal-engine--*.web.app"}, nil).ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected status 204, got %d", rr.Code)
 	}
-	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "https://pr-42--trade-signal-engine.web.app" {
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "https://trade-signal-engine--pr-30-k39hggi2.web.app" {
 		t.Fatalf("expected allow-origin header, got %q", got)
 	}
 }
