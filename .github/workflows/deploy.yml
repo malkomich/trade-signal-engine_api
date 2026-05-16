@@ -72,7 +72,7 @@ jobs:
           ALPACA_PAPER_SECRET: ${{ secrets.ALPACA_PAPER_SECRET }}
           ALPACA_PAPER_TRADING_URL: https://paper-api.alpaca.markets
           ALPACA_LIVE_TRADING_URL: https://api.alpaca.markets
-          CORS_ALLOWED_ORIGINS: https://trade-signal-engine.web.app,https://trade-signal-engine.firebaseapp.com,https://trade-signal-engine--*.web.app,https://trade-signal-engine--*.firebaseapp.com,http://localhost:*,http://127.0.0.1:*
+          CORS_ALLOWED_ORIGINS: https://trade-signal-engine.web.app,https://trade-signal-engine.firebaseapp.com,https://*--trade-signal-engine.web.app,https://*--trade-signal-engine.firebaseapp.com,http://localhost:*,http://127.0.0.1:*
         run: |
           set -e
           docker compose up -d --build
