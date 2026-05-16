@@ -996,6 +996,22 @@ func TestRouterAllowsFirebasePreviewCORSOrigins(t *testing.T) {
 	}
 }
 
+func TestRouterAllowsLocalhostCORSOrigins(t *testing.T) {
+	req := httptest.NewRequest(http.MethodOptions, "/v1/sessions/session-1/trading", nil)
+	req.Header.Set("Origin", "http://127.0.0.1:4173")
+	req.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	rr := httptest.NewRecorder()
+
+	NewRouter(store.NewMemoryStore(), nil, nil, slog.Default(), "IXIC", []string{"http://localhost:*", "http://127.0.0.1:*"}, nil).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204, got %d", rr.Code)
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "http://127.0.0.1:4173" {
+		t.Fatalf("expected allow-origin header, got %q", got)
+	}
+}
+
 func TestRouterRejectsDisallowedCORSPreflightRequests(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/v1/sessions/session-1/trading", nil)
 	req.Header.Set("Origin", "https://malicious.example.test")
